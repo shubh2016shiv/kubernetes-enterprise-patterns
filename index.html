@@ -203,10 +203,10 @@
         
         <div class="phase-label" style="border-color: var(--dev-lane);">Phase 1: Setup (Developer Lane)</div>
         <button id="btn-deploy" class="btn-dev" onclick="runDeployment()">1. Deploy App<br><small>kubectl apply -f deployment.yaml</small></button>
-        <button id="btn-expose" class="btn-dev" onclick="runExpose()" disabled>2. Expose Service<br><small>kubectl expose deploy web</small></button>
+        <button id="btn-expose" class="btn-dev" onclick="runExpose()" disabled>2. Expose Service<br><small>kubectl expose deploy web --type=NodePort</small></button>
         
         <div class="phase-label" style="border-color: var(--user-lane); margin-top: 20px;">Phase 2: Traffic (User Lane)</div>
-        <button id="btn-traffic" class="btn-user" onclick="runTraffic()" disabled>3. Visit Website<br><small>curl http://service-ip</small></button>
+        <button id="btn-traffic" class="btn-user" onclick="runTraffic()" disabled>3. Visit Website<br><small>curl http://node-ip:30080</small></button>
         
         <button id="btn-reset" onclick="resetState()" style="background-color: var(--border); margin-top: 20px;">Reset Environment</button>
     </div>
@@ -467,22 +467,22 @@ The API Server writes the Deployment object here.
 
             // STEP 4/6 — Controller Manager
             setActive(['controller'], 'highlight-dev');
-            log += `<div class="step-header dev-color">[STEP 4 of 6] — Deployment Controller: The Reconciliation Loop</div>
-<span class="explainer-text">The Controller Manager runs dozens of controllers in one process. The <strong>Deployment Controller</strong> is watching the API Server for Deployment objects.
+            log += `<div class="step-header dev-color">[STEP 4 of 6] — Controllers: Deployment & ReplicaSet</div>
+<span class="explainer-text">The Controller Manager runs dozens of controllers. Two work together here:
 
-Its loop (every ~15s or on watch event):
-  <strong>Desired state</strong> (from etcd): 3 replicas
-  <strong>Actual state</strong> (observed):    0 pods with label app=my-app
-  <strong>Action</strong>: Create 3 Pod objects in the API Server
+  1. <strong>Deployment Controller</strong>: Watches for Deployments.
+     Action: Creates a <code>ReplicaSet</code> object in etcd (e.g., my-app-7d9f8b).
+  2. <strong>ReplicaSet Controller</strong>: Watches for ReplicaSets.
+     Action: Creates 3 <code>Pod</code> objects in the API Server.
 
 It creates these Pod records (still just JSON in etcd — no container runs yet):
   pod/my-app-7d9f8b-abc → status: Pending, nodeName: &lt;none&gt;
   pod/my-app-7d9f8b-def → status: Pending, nodeName: &lt;none&gt;
   pod/my-app-7d9f8b-ghi → status: Pending, nodeName: &lt;none&gt;
 
-→ The Controller does NOT schedule or run containers.
-→ It only creates/updates/deletes API objects (Pod specs in etcd).</span>`;
-            setInspector('[4/6] Controller Manager → creates 3 Pod objects', log);
+→ Deployments NEVER manage Pods directly! They manage ReplicaSets.
+→ The Controller does NOT schedule or run containers, it only updates etcd.</span>`;
+            setInspector('[4/6] Controller Manager → creates ReplicaSet and Pod objects', log);
             await waitForNextStep(); if(isAborted) return;
 
             // STEP 5/6 — Scheduler
@@ -554,15 +554,15 @@ When it finds a new pod with its nodeName, it:
 { <span class="json-key">"kind"</span>: <span class="json-string">"Service"</span>,
   <span class="json-key">"spec"</span>: {
     <span class="json-key">"selector"</span>: {<span class="json-key">"app"</span>: <span class="json-string">"my-app"</span>},
-    <span class="json-key">"ports"</span>: [{<span class="json-key">"port"</span>: 80, <span class="json-key">"targetPort"</span>: 8080}],
-    <span class="json-key">"type"</span>: <span class="json-string">"ClusterIP"</span>
+    <span class="json-key">"ports"</span>: [{<span class="json-key">"port"</span>: 80, <span class="json-key">"targetPort"</span>: 8080, <span class="json-key">"nodePort"</span>: 30080}],
+    <span class="json-key">"type"</span>: <span class="json-string">"NodePort"</span>
   }
 }</div>
-<span class="explainer-text">You run: <strong>kubectl expose deployment my-app --port=80</strong><br>
+<span class="explainer-text">You run: <strong>kubectl expose deployment my-app --port=80 --type=NodePort</strong><br>
 This POSTs a Service object to the API Server. The Service is JUST a JSON record in etcd.<br><br>
 → A Service is NOT a process or a daemon. It has no running code.<br>
-→ It is a <strong>virtual abstraction</strong>. The actual routing happens in the Linux kernel via kube-proxy rules.<br>
-→ The API Server will assign a stable <strong>ClusterIP: 10.96.0.15</strong> — this IP never changes for the life of the Service.</span>`;
+→ <strong>NodePort</strong> type means K8s will open port 30080 on EVERY worker node, allowing external traffic to enter.<br>
+→ The API Server also assigns a stable internal <strong>ClusterIP: 10.96.0.15</strong>.</span>`;
             setInspector('[1/4] kubectl → API Server (Service object)', log);
             await waitForNextStep(); if(isAborted) return;
 
@@ -579,9 +579,9 @@ This POSTs a Service object to the API Server. The Service is JUST a JSON record
 }</div>
 <span class="explainer-text">The <strong>Endpoints Controller</strong> (inside Controller Manager) watches Services and Pods.<br>
 It finds all Running pods whose labels match the Service selector (<em>app=my-app</em>) and writes their IPs to an Endpoints object.<br><br>
-→ When a pod dies or fails its readinessProbe, its IP is <strong>removed</strong> from Endpoints automatically.<br>
+→ When a pod dies or fails its <strong>readinessProbe</strong>, its IP is automatically <strong>removed</strong> from Endpoints.<br>
 → New pods are <strong>added</strong> automatically when they become Ready.<br>
-→ This is how K8s does load balancing config — it's just a list of IPs in etcd.</span>`;
+→ This is how K8s handles dynamic IPs — by keeping an updated list in etcd.</span>`;
             setInspector('[2/4] Endpoints Controller → etcd (Pod IP list)', log);
             await waitForNextStep(); if(isAborted) return;
 
@@ -589,7 +589,7 @@ It finds all Running pods whose labels match the Service selector (<em>app=my-ap
             setActive(['proxy-1', 'proxy-2'], 'highlight-os');
             log += `<div class="step-header os-color">[STEP 3 of 4] — kube-proxy: Watches API Server, writes rules</div>
 <span class="explainer-text"><strong>kube-proxy</strong> runs as a DaemonSet on every node. It watches the API Server for Service and Endpoints changes.<br>
-When it sees the new Endpoints object, it calculates the iptables rules needed and writes them to the local kernel.
+When it sees the new Endpoints object, it calculates the iptables (or IPVS) rules needed and writes them to the local kernel.
 
 <strong>IMPORTANT MISCONCEPTION:</strong> kube-proxy does NOT proxy traffic in the traditional sense.<br>
 It is NOT in the data path for live traffic. It is a <em>rule programmer</em> that runs once per change, then goes idle.
@@ -604,8 +604,8 @@ After kube-proxy runs:
             // STEP 4/4 — Linux Kernel
             setActive(['kernel-1', 'kernel-2'], 'highlight-os');
             log += `<div class="step-header os-color">[STEP 4 of 4] — Linux Kernel: iptables/IPVS rules installed</div>
-<div class="packet-block"><span style="color:#ecc94b"># Rules now baked into netfilter on BOTH nodes:
--A KUBE-SERVICES -d 10.96.0.15/32 -p tcp --dport 80 -j KUBE-SVC-XYZABC
+<div class="packet-block"><span style="color:#ecc94b"># Rules now baked into netfilter on ALL nodes:
+-A KUBE-NODEPORTS -p tcp --dport 30080 -j KUBE-SVC-XYZABC
 -A KUBE-SVC-XYZABC -m statistic --mode random --probability 0.33 -j KUBE-SEP-1
 -A KUBE-SVC-XYZABC -m statistic --mode random --probability 0.50 -j KUBE-SEP-2
 -A KUBE-SVC-XYZABC -j KUBE-SEP-3
@@ -614,7 +614,7 @@ After kube-proxy runs:
 -A KUBE-SEP-3 -j DNAT --to-destination 10.244.2.7:8080</span></div>
 <span class="explainer-text">These rules live inside the Linux kernel's netfilter subsystem (iptables NAT table).<br>
 They intercept packets at the <strong>PREROUTING</strong> hook — <em>before</em> any userspace process sees them.<br><br>
-→ The kernel randomly picks 1 of 3 pods (33% each) — this IS the load balancing.<br>
+→ The kernel listens on NodePort 30080, and randomly picks 1 of 3 pods (33% each) — this IS the load balancing.<br>
 → It rewrites the destination IP in the packet header (DNAT) at nanosecond speed.<br>
 → <strong>SETUP COMPLETE.</strong> Control plane, kube-proxy, kubelet all go to SLEEP. Live traffic = kernel only.</span>`;
             setInspector('[4/4] Linux Kernel rules active ✅', log);
@@ -638,34 +638,34 @@ They intercept packets at the <strong>PREROUTING</strong> hook — <em>before</e
             setActive(['user-node'], 'highlight-user');
             log = `<div class="step-header user-color">[STEP 1 of 3] — End User sends an HTTP request</div>
 <div class="packet-block"><span class="http-method">GET</span> / HTTP/1.1
-<span class="http-header">Host:</span> 10.96.0.15  <span style="color:#718096">&lt;— The K8s Service ClusterIP</span>
+<span class="http-header">Host:</span> 203.0.113.1:30080  <span style="color:#718096">&lt;— Node External IP + NodePort</span>
 <span class="http-header">User-Agent:</span> Mozilla/5.0 (Windows NT 10.0)
 <span class="http-header">Accept:</span> text/html
 </div>
-<span class="explainer-text">The user types the Service IP in their browser. The browser sends a plain TCP/HTTP packet.<br><br>
-→ The user has NO idea about Kubernetes, Pods, YAML, or etcd.<br>
-→ The packet destination is <strong>10.96.0.15:80</strong> (Service ClusterIP). No pod IP is in the packet.<br>
+<span class="explainer-text">The user types the Node IP and NodePort in their browser. The browser sends a plain TCP/HTTP packet.<br><br>
+→ The packet destination is <strong>203.0.113.1:30080</strong>. No pod IP or ClusterIP is in the packet yet.<br>
+→ <strong>NOTE ON DNS:</strong> If this was an <em>internal</em> Pod-to-Pod request, it would first query <strong>CoreDNS</strong> to resolve a service name (like <code>my-app.default.svc</code>) into the ClusterIP (10.96.0.15). But external users hit the Node directly.<br>
 → Notice: the Control Plane, API Server, etcd, kubelet, kube-proxy are ALL marked <strong>SLEEPING</strong>.<br>
-→ Zero management overhead during live traffic. The cluster brain is not involved.</span>`;
-            setInspector('[1/3] End User → Service IP', log);
+→ Zero management overhead during live traffic.</span>`;
+            setInspector('[1/3] End User → Node IP', log);
             await waitForNextStep(); if(isAborted) return;
 
             // STEP 2/3 — Linux Kernel DNAT
             setActive(['kernel-1', 'kernel-2'], 'highlight-user');
             log += `<div class="step-header user-color">[STEP 2 of 3] — Linux Kernel: DNAT in action (microsecond routing)</div>
-<div class="packet-block"><span style="color:#68d391">// Packet arrives at node network interface
-// netfilter PREROUTING hook fires:
+<div class="packet-block"><span style="color:#68d391">// Packet arrives at node network interface (eth0)
+// netfilter PREROUTING hook intercepts it:
 
-Original:  SRC 203.0.113.1:54321 → DST 10.96.0.15:80
+Original:  SRC 198.51.100.1:54321 → DST 203.0.113.1:30080
 
 // Kernel checks iptables, randomly picks pod (33% each):
 // Selected: 10.244.2.3:8080 (Pod on Node 2)
 
-After DNAT: SRC 203.0.113.1:54321 → DST 10.244.2.3:8080</span></div>
+After DNAT: SRC 198.51.100.1:54321 → DST 10.244.2.3:8080</span></div>
 <span class="explainer-text">The TCP packet hits the node's NIC. The Linux kernel's <strong>netfilter subsystem</strong> intercepts it at the PREROUTING hook <em>before any userspace process sees it</em>.<br><br>
 It executes the iptables DNAT rule written earlier by kube-proxy:<br>
   1. Randomly selects a pod IP from the Endpoints list (load balancing!)<br>
-  2. <strong>Rewrites the destination IP</strong> in the packet header from 10.96.0.15 to 10.244.2.3<br>
+  2. <strong>Rewrites the destination IP and port</strong> in the packet header from NodeIP:30080 to PodIP:8080<br>
   3. Forwards the modified packet to the pod<br><br>
 → No process woke up. No syscall to userspace. Pure kernel networking.<br>
 → Latency added: ~1-5 microseconds.
