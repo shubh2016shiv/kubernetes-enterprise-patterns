@@ -184,6 +184,10 @@
         .json-key { color: #f687b3;}
         .json-string { color: #68d391;}
         .explainer-text { color: #ecc94b; margin-top: 10px; display: block; background: rgba(236, 201, 75, 0.1); padding: 10px; border-left: 3px solid #ecc94b;}
+        .step-header { font-weight: bold; margin: 16px 0 6px 0; padding: 6px 10px; border-radius: 4px; font-size: 0.9rem; }
+        .dev-color { color: var(--dev-lane); border-left: 3px solid var(--dev-lane); background: rgba(159,122,234,0.08); }
+        .user-color { color: var(--user-lane); border-left: 3px solid var(--user-lane); background: rgba(237,137,54,0.08); }
+        .os-color { color: var(--warning); border-left: 3px solid var(--warning); background: rgba(236,201,75,0.08); }
     </style>
 </head>
 <body>
@@ -354,18 +358,25 @@
             inspectorContent.scrollTop = inspectorContent.scrollHeight;
         }
 
-        async function flash(elementId, duration = 800, highlightClass = 'highlight-dev') {
-            const el = document.getElementById(elementId);
-            if(!el) return;
-            
-            const wasAsleep = el.classList.contains('asleep');
-            if (wasAsleep) el.classList.remove('asleep'); 
-            
-            el.classList.add(highlightClass);
-            await sleep(duration);
-            el.classList.remove(highlightClass);
-            
-            if (wasAsleep) el.classList.add('asleep');
+        // Sets highlight and KEEPS IT ON until clearActive() is called.
+        // This replaces flash() so the user can study the active component.
+        function setActive(elementIds, highlightClass) {
+            clearActive(); // clear previous active first
+            elementIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.remove('asleep'); // wake if sleeping
+                el.classList.add(highlightClass);
+                el.dataset.activeClass = highlightClass;
+            });
+        }
+
+        function clearActive() {
+            document.querySelectorAll('[data-active-class]').forEach(el => {
+                const cls = el.dataset.activeClass;
+                el.classList.remove(cls);
+                delete el.dataset.activeClass;
+            });
         }
 
         function toggleSleep(elementIds, isAsleep) {
@@ -395,57 +406,135 @@
         async function runDeployment() {
             isAborted = false;
             disableSidebarButtons();
-            
-            const part1 = `
-<div style="color: var(--dev-lane); font-weight: bold; margin-bottom: 5px;">[STEP 1: DEVELOPER SENDS JSON]</div>
-<div class="packet-block">
-<span class="http-method">POST</span> /apis/apps/v1/namespaces/default/deployments HTTP/1.1
+            let log = '';
+
+            // STEP 1/6 — Developer (kubectl)
+            setActive(['dev-node'], 'highlight-dev');
+            log = `<div class="step-header dev-color">[STEP 1 of 6] — kubectl sends the Deployment manifest</div>
+<div class="packet-block"><span class="http-method">POST</span> /apis/apps/v1/namespaces/default/deployments HTTP/1.1
 <span class="http-header">Host:</span> api.my-cluster.com:6443
 <span class="http-header">Authorization:</span> Bearer &lt;your-admin-token&gt;
 <span class="http-header">Content-Type:</span> application/json
 
-{
-  <span class="json-key">"apiVersion"</span>: <span class="json-string">"apps/v1"</span>,
-  <span class="json-key">"kind"</span>: <span class="json-string">"Deployment"</span>,
-  <span class="json-key">"metadata"</span>: { <span class="json-key">"name"</span>: <span class="json-string">"my-app"</span> },
-  <span class="json-key">"spec"</span>: {
-    <span class="json-key">"replicas"</span>: 3,
-    <span class="json-key">"template"</span>: { ... }
-  }
-}
+{ <span class="json-key">"apiVersion"</span>: <span class="json-string">"apps/v1"</span>, <span class="json-key">"kind"</span>: <span class="json-string">"Deployment"</span>,
+  <span class="json-key">"metadata"</span>: {<span class="json-key">"name"</span>: <span class="json-string">"my-app"</span>},
+  <span class="json-key">"spec"</span>: {<span class="json-key">"replicas"</span>: 3, <span class="json-key">"selector"</span>: {<span class="json-key">"matchLabels"</span>: {<span class="json-string">"app"</span>:<span class="json-string">"my-app"</span>}},
+    <span class="json-key">"template"</span>: {<span class="json-key">"spec"</span>: {<span class="json-key">"containers"</span>: [{<span class="json-key">"name"</span>:<span class="json-string">"web"</span>,<span class="json-key">"image"</span>:<span class="json-string">"nginx:1.25"</span>}]}}}}
 </div>
-<span class="explainer-text"><strong>1. The Request:</strong> kubectl converts your YAML into this JSON payload and POSTs it to the API Server.</span><br>`;
-            
-            setInspector('Developer ➔ API Server (Lane 1)', part1);
-            flash('dev-node', 1000, 'highlight-dev');
+<span class="explainer-text">You run: <strong>kubectl apply -f deployment.yaml</strong><br>
+kubectl reads your YAML, converts it to JSON, and makes a TLS-encrypted HTTPS POST to the API Server on port 6443.<br><br>
+→ This is <strong>management traffic</strong>. It NEVER touches your app pods.<br>
+→ kubectl is just a CLI tool that speaks the Kubernetes REST API.<br>
+→ Your YAML gets serialized to JSON over the wire — K8s is JSON-native internally.</span>`;
+            setInspector('[1/6] kubectl → API Server', log);
             await waitForNextStep(); if(isAborted) return;
 
-            const part2 = `
-<span class="explainer-text" style="margin-top: 10px;"><strong>2. State Storage:</strong> The API Server receives the JSON and permanently saves this "Desired State" into the etcd database.</span><br>`;
-            
-            setInspector('API Server ➔ etcd', part1 + part2);
-            await flash('api-server', 800, 'highlight-dev');
-            await flash('etcd', 600, 'highlight-dev');
-            await waitForNextStep(); if(isAborted) return;
-            
-            const part3 = `
-<span class="explainer-text" style="margin-top: 10px;"><strong>3. Reconciliation:</strong> The Controller sees the new Deployment and creates Pod objects. The Scheduler assigns them to Nodes. The Kubelets start the actual containers.</span><br>`;
-            
-            setInspector('Control Loops & Kubelets', part1 + part2 + part3);
-            await flash('controller', 500, 'highlight-dev');
-            await flash('scheduler', 500, 'highlight-dev');
-            flash('kubelet-1', 600, 'highlight-dev');
-            await flash('kubelet-2', 600, 'highlight-dev');
+            // STEP 2/6 — API Server
+            setActive(['api-server'], 'highlight-dev');
+            log += `<div class="step-header dev-color">[STEP 2 of 6] — API Server: Gatekeeper + Validator</div>
+<span class="explainer-text">The API Server is the <strong>ONLY</strong> component that talks to etcd and the ONLY entry point to the cluster.
+Before storing anything, it does 3 checks in order:
 
+  1. <strong>Authentication</strong> — Is this Bearer token valid? (via OIDC, certs, or webhook)
+  2. <strong>Authorization (RBAC)</strong> — Does this user have <em>create</em> rights on <em>deployments</em> in namespace <em>default</em>?
+  3. <strong>Admission Control</strong> — Any MutatingWebhooks to apply? Any ValidatingWebhooks that reject it?
+     (e.g. LimitRanger can add default CPU/mem requests, PodSecurity can block privileged pods)
+
+Only if ALL 3 pass does it write to etcd.
+
+→ The API Server does NOT run containers, schedule pods, or proxy traffic.
+→ It is a stateless REST server — all state lives in etcd.</span>`;
+            setInspector('[2/6] API Server validates request', log);
+            await waitForNextStep(); if(isAborted) return;
+
+            // STEP 3/6 — etcd
+            setActive(['etcd'], 'highlight-dev');
+            log += `<div class="step-header dev-color">[STEP 3 of 6] — etcd: The Source of Truth</div>
+<div class="packet-block"><span style="color:#68d391">// etcd key written:</span>
+<span class="json-key">/registry/deployments/default/my-app</span>
+→ value: { <span class="json-key">"spec"</span>: {<span class="json-key">"replicas"</span>: 3 ...}, <span class="json-key">"status"</span>: {} }
+
+<span style="color:#68d391">// This is the DESIRED STATE. No pods exist yet.</span></div>
+<span class="explainer-text">etcd is a distributed key-value store (Raft consensus).
+The API Server writes the Deployment object here.
+
+→ etcd is the <strong>only persistent storage</strong> in Kubernetes.
+→ Every other component is stateless — they read from etcd via the API Server.
+→ If etcd is corrupted, the cluster loses all state. Back it up!
+→ etcd runs on port 2379 and only the API Server can talk to it directly.</span>`;
+            setInspector('[3/6] API Server → etcd (Desired State stored)', log);
+            await waitForNextStep(); if(isAborted) return;
+
+            // STEP 4/6 — Controller Manager
+            setActive(['controller'], 'highlight-dev');
+            log += `<div class="step-header dev-color">[STEP 4 of 6] — Deployment Controller: The Reconciliation Loop</div>
+<span class="explainer-text">The Controller Manager runs dozens of controllers in one process. The <strong>Deployment Controller</strong> is watching the API Server for Deployment objects.
+
+Its loop (every ~15s or on watch event):
+  <strong>Desired state</strong> (from etcd): 3 replicas
+  <strong>Actual state</strong> (observed):    0 pods with label app=my-app
+  <strong>Action</strong>: Create 3 Pod objects in the API Server
+
+It creates these Pod records (still just JSON in etcd — no container runs yet):
+  pod/my-app-7d9f8b-abc → status: Pending, nodeName: &lt;none&gt;
+  pod/my-app-7d9f8b-def → status: Pending, nodeName: &lt;none&gt;
+  pod/my-app-7d9f8b-ghi → status: Pending, nodeName: &lt;none&gt;
+
+→ The Controller does NOT schedule or run containers.
+→ It only creates/updates/deletes API objects (Pod specs in etcd).</span>`;
+            setInspector('[4/6] Controller Manager → creates 3 Pod objects', log);
+            await waitForNextStep(); if(isAborted) return;
+
+            // STEP 5/6 — Scheduler
+            setActive(['scheduler'], 'highlight-dev');
+            log += `<div class="step-header dev-color">[STEP 5 of 6] — Scheduler: The Placement Engine</div>
+<span class="explainer-text">The Scheduler watches for Pods that have no <em>nodeName</em> assigned (status: Pending).
+For each unscheduled pod, it runs a 2-phase algorithm:
+
+  <strong>Phase 1 — Filter</strong> (eliminates unfit nodes):
+    • Does the node have enough CPU/Memory?
+    • Do node selectors / affinity rules match?
+    • Is the node tainted? Does the pod tolerate it?
+    • Is the pod's PVC available on this node?
+
+  <strong>Phase 2 — Score</strong> (ranks remaining nodes):
+    • LeastRequestedPriority — prefer least loaded node
+    • SpreaderPriority — spread replicas across zones
+
+  <strong>Result written back to etcd</strong>:
+    pod/my-app-abc → nodeName: worker-node-1  (1 pod)
+    pod/my-app-def → nodeName: worker-node-2  (2 pods)
+    pod/my-app-ghi → nodeName: worker-node-2
+
+→ Scheduler ONLY writes a nodeName. It starts ZERO containers.</span>`;
+            setInspector('[5/6] Scheduler → assigns pods to nodes', log);
+            await waitForNextStep(); if(isAborted) return;
+
+            // STEP 6/6 — kubelet + containerd + pods appear
+            setActive(['kubelet-1', 'kubelet-2'], 'highlight-dev');
             document.getElementById('pod-1-a').classList.add('visible');
             document.getElementById('pod-2-a').classList.add('visible');
             document.getElementById('pod-2-b').classList.add('visible');
+            log += `<div class="step-header dev-color">[STEP 6 of 6] — kubelet + containerd: Containers actually start</div>
+<span class="explainer-text">Each kubelet polls the API Server every few seconds for pods assigned to <em>its own node</em>.
+When it finds a new pod with its nodeName, it:
 
-            const part4 = `
-<span class="explainer-text" style="margin-top:10px;"><strong>✅ Deploy Complete:</strong> 3 Pods are now running (1 on Node 1, 2 on Node 2). The app is deployed but NOT yet reachable — there is no Service yet. Click <em>Next Step</em> to continue to exposing the service.</span>`;
-            setInspector('Pods Running — Deploy Done', part1 + part2 + part3 + part4);
+  1. Calls the <strong>Container Runtime</strong> (containerd) via CRI (gRPC) to pull the image
+  2. containerd pulls <em>nginx:1.25</em> from the registry if not cached
+  3. Creates the container with the right cgroups, namespaces, seccomp profile
+  4. Calls the <strong>CNI plugin</strong> (e.g. Flannel/Calico) to assign a Pod IP:
+       Node 1 pod: 10.244.1.5
+       Node 2 pods: 10.244.2.3, 10.244.2.7
+  5. Reports status back to API Server: Running, IP=10.244.1.5
+
+→ kubelet is the ONLY component that actually runs containers.
+→ It NEVER receives traffic from the end user.
+→ 3 Pods are now Running — but NOT reachable from outside yet.
+→ There is no Service. The Pod IPs are ephemeral and internal only.</span>`;
+            setInspector('[6/6] kubelet → containers running ✅', log);
             await waitForNextStep(); if(isAborted) return;
-            
+
+            clearActive();
             step = 1;
             updateButtons();
         }
@@ -453,43 +542,88 @@
         async function runExpose() {
             isAborted = false;
             disableSidebarButtons();
-            
-            const part1 = `
-<div style="color: var(--dev-lane); font-weight: bold; margin-bottom: 5px;">[STEP 1: SERVICE CREATION]</div>
-<div class="packet-block">
-<span class="http-method">POST</span> /api/v1/namespaces/default/services HTTP/1.1
-<span style="color:#a0aec0;">// The Service is created as a JSON Dictionary.</span>
-<span style="color:#a0aec0;">// Controller generates JSON "Endpoints" mapping IP to Pods.</span>
-</div>
-<span class="explainer-text"><strong>API Action:</strong> You tell the API to expose the app. The Controller creates the Endpoints mapping.</span><br>`;
+            let log = '';
 
-            setInspector('API Server ➔ Controller', part1);
-            flash('dev-node', 800, 'highlight-dev');
-            await sleep(300);
-            await flash('api-server', 600, 'highlight-dev');
-            await flash('controller', 800, 'highlight-dev');
+            // STEP 1/4 — kubectl creates the Service object
+            setActive(['dev-node'], 'highlight-dev');
+            log = `<div class="step-header dev-color">[STEP 1 of 4] — kubectl expose: Create the Service object</div>
+<div class="packet-block"><span class="http-method">POST</span> /api/v1/namespaces/default/services HTTP/1.1
+<span class="http-header">Authorization:</span> Bearer &lt;token&gt;
+<span class="http-header">Content-Type:</span> application/json
+
+{ <span class="json-key">"kind"</span>: <span class="json-string">"Service"</span>,
+  <span class="json-key">"spec"</span>: {
+    <span class="json-key">"selector"</span>: {<span class="json-key">"app"</span>: <span class="json-string">"my-app"</span>},
+    <span class="json-key">"ports"</span>: [{<span class="json-key">"port"</span>: 80, <span class="json-key">"targetPort"</span>: 8080}],
+    <span class="json-key">"type"</span>: <span class="json-string">"ClusterIP"</span>
+  }
+}</div>
+<span class="explainer-text">You run: <strong>kubectl expose deployment my-app --port=80</strong><br>
+This POSTs a Service object to the API Server. The Service is JUST a JSON record in etcd.<br><br>
+→ A Service is NOT a process or a daemon. It has no running code.<br>
+→ It is a <strong>virtual abstraction</strong>. The actual routing happens in the Linux kernel via kube-proxy rules.<br>
+→ The API Server will assign a stable <strong>ClusterIP: 10.96.0.15</strong> — this IP never changes for the life of the Service.</span>`;
+            setInspector('[1/4] kubectl → API Server (Service object)', log);
             await waitForNextStep(); if(isAborted) return;
 
-            const part2 = `
-<span class="explainer-text" style="margin-top:10px;"><strong>Rule Installation:</strong> kube-proxy reads the Endpoints JSON, then programs the Linux Kernel with OS firewall commands.</span>
-<div class="packet-block" style="border-color: var(--warning); margin-top:10px;">
-<span style="color: #ecc94b;">$ iptables -t nat -A PREROUTING -d 10.96.0.15 -j DNAT --to-destination 10.244.1.5</span>
-</div>`;
-
-            setInspector('Kube-Proxy ➔ Linux Kernel', part1 + part2);
-            flash('proxy-1', 1200, 'highlight-os');
-            await flash('proxy-2', 1200, 'highlight-os');
-            flash('kernel-1', 1000, 'highlight-os');
-            await flash('kernel-2', 1000, 'highlight-os');
+            // STEP 2/4 — Controller creates Endpoints
+            setActive(['api-server', 'etcd', 'controller'], 'highlight-dev');
+            log += `<div class="step-header dev-color">[STEP 2 of 4] — Endpoints Controller maps Service → Pod IPs</div>
+<div class="packet-block"><span style="color:#68d391">// Endpoints object written to etcd:</span>
+<span class="json-key">/registry/endpoints/default/my-app</span>
+{ <span class="json-key">"subsets"</span>: [{ <span class="json-key">"addresses"</span>: [
+    {<span class="json-key">"ip"</span>: <span class="json-string">"10.244.1.5"</span>},   <span style="color:#718096">← Pod on Node 1</span>
+    {<span class="json-key">"ip"</span>: <span class="json-string">"10.244.2.3"</span>},   <span style="color:#718096">← Pod on Node 2</span>
+    {<span class="json-key">"ip"</span>: <span class="json-string">"10.244.2.7"</span>}    <span style="color:#718096">← Pod on Node 2</span>
+  ], <span class="json-key">"ports"</span>: [{<span class="json-key">"port"</span>: 8080}] }]
+}</div>
+<span class="explainer-text">The <strong>Endpoints Controller</strong> (inside Controller Manager) watches Services and Pods.<br>
+It finds all Running pods whose labels match the Service selector (<em>app=my-app</em>) and writes their IPs to an Endpoints object.<br><br>
+→ When a pod dies or fails its readinessProbe, its IP is <strong>removed</strong> from Endpoints automatically.<br>
+→ New pods are <strong>added</strong> automatically when they become Ready.<br>
+→ This is how K8s does load balancing config — it's just a list of IPs in etcd.</span>`;
+            setInspector('[2/4] Endpoints Controller → etcd (Pod IP list)', log);
             await waitForNextStep(); if(isAborted) return;
 
-            const part3 = `
-<span class="explainer-text" style="margin-top:10px;"><strong>Setup Complete:</strong> The Control Plane and kube-proxy go back to SLEEP. They do not handle active traffic.</span>`;
-            
-            setInspector('Setup Complete', part1 + part2 + part3);
-            // PUT MANAGEMENT LANE TO SLEEP!
+            // STEP 3/4 — kube-proxy reads Endpoints
+            setActive(['proxy-1', 'proxy-2'], 'highlight-os');
+            log += `<div class="step-header os-color">[STEP 3 of 4] — kube-proxy: Watches API Server, writes rules</div>
+<span class="explainer-text"><strong>kube-proxy</strong> runs as a DaemonSet on every node. It watches the API Server for Service and Endpoints changes.<br>
+When it sees the new Endpoints object, it calculates the iptables rules needed and writes them to the local kernel.
+
+<strong>IMPORTANT MISCONCEPTION:</strong> kube-proxy does NOT proxy traffic in the traditional sense.<br>
+It is NOT in the data path for live traffic. It is a <em>rule programmer</em> that runs once per change, then goes idle.
+
+After kube-proxy runs:
+  → It exits its update loop and is IDLE.
+  → Future traffic does NOT pass through kube-proxy.
+  → The kernel handles all routing by itself.</span>`;
+            setInspector('[3/4] kube-proxy programs iptables rules', log);
+            await waitForNextStep(); if(isAborted) return;
+
+            // STEP 4/4 — Linux Kernel
+            setActive(['kernel-1', 'kernel-2'], 'highlight-os');
+            log += `<div class="step-header os-color">[STEP 4 of 4] — Linux Kernel: iptables/IPVS rules installed</div>
+<div class="packet-block"><span style="color:#ecc94b"># Rules now baked into netfilter on BOTH nodes:
+-A KUBE-SERVICES -d 10.96.0.15/32 -p tcp --dport 80 -j KUBE-SVC-XYZABC
+-A KUBE-SVC-XYZABC -m statistic --mode random --probability 0.33 -j KUBE-SEP-1
+-A KUBE-SVC-XYZABC -m statistic --mode random --probability 0.50 -j KUBE-SEP-2
+-A KUBE-SVC-XYZABC -j KUBE-SEP-3
+-A KUBE-SEP-1 -j DNAT --to-destination 10.244.1.5:8080
+-A KUBE-SEP-2 -j DNAT --to-destination 10.244.2.3:8080
+-A KUBE-SEP-3 -j DNAT --to-destination 10.244.2.7:8080</span></div>
+<span class="explainer-text">These rules live inside the Linux kernel's netfilter subsystem (iptables NAT table).<br>
+They intercept packets at the <strong>PREROUTING</strong> hook — <em>before</em> any userspace process sees them.<br><br>
+→ The kernel randomly picks 1 of 3 pods (33% each) — this IS the load balancing.<br>
+→ It rewrites the destination IP in the packet header (DNAT) at nanosecond speed.<br>
+→ <strong>SETUP COMPLETE.</strong> Control plane, kube-proxy, kubelet all go to SLEEP. Live traffic = kernel only.</span>`;
+            setInspector('[4/4] Linux Kernel rules active ✅', log);
+            await waitForNextStep(); if(isAborted) return;
+
+            clearActive();
             toggleSleep(['dev-node', 'control-plane', 'api-server', 'etcd', 'controller', 'scheduler', 'kubelet-1', 'kubelet-2', 'proxy-1', 'proxy-2'], true);
-            
+            setInspector('Setup Complete — Cluster Ready', log + `<div class="step-header os-color">✅ All management components are now SLEEPING. Only the Linux Kernel rules remain active. Click "3. Visit Website" to see live traffic.</div>`);
+
             step = 2;
             updateButtons();
         }
@@ -498,36 +632,69 @@
         async function runTraffic() {
             isAborted = false;
             disableSidebarButtons();
-            
-            const part1 = `
-<div style="color: var(--user-lane); font-weight: bold; margin-bottom: 5px;">[STEP 1: USER REQUEST]</div>
-<div class="packet-block">
-<span class="http-method">GET</span> /index.html HTTP/1.1
-<span class="http-header">Host:</span> 10.96.0.15  <span style="color:gray;">&lt;-- (This is the K8s Service IP)</span>
-<span class="http-header">User-Agent:</span> Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+            let log = '';
+
+            // STEP 1/3 — End User sends request
+            setActive(['user-node'], 'highlight-user');
+            log = `<div class="step-header user-color">[STEP 1 of 3] — End User sends an HTTP request</div>
+<div class="packet-block"><span class="http-method">GET</span> / HTTP/1.1
+<span class="http-header">Host:</span> 10.96.0.15  <span style="color:#718096">&lt;— The K8s Service ClusterIP</span>
+<span class="http-header">User-Agent:</span> Mozilla/5.0 (Windows NT 10.0)
 <span class="http-header">Accept:</span> text/html
 </div>
-<span class="explainer-text"><strong>The Request:</strong> The end user sends a standard HTTP packet. The Kubernetes Service is unaware of JSON or K8s concepts.</span><br>`;
-
-            setInspector('End User ➔ Service IP (Lane 2)', part1);
-            flash('user-node', 1000, 'highlight-user');
+<span class="explainer-text">The user types the Service IP in their browser. The browser sends a plain TCP/HTTP packet.<br><br>
+→ The user has NO idea about Kubernetes, Pods, YAML, or etcd.<br>
+→ The packet destination is <strong>10.96.0.15:80</strong> (Service ClusterIP). No pod IP is in the packet.<br>
+→ Notice: the Control Plane, API Server, etcd, kubelet, kube-proxy are ALL marked <strong>SLEEPING</strong>.<br>
+→ Zero management overhead during live traffic. The cluster brain is not involved.</span>`;
+            setInspector('[1/3] End User → Service IP', log);
             await waitForNextStep(); if(isAborted) return;
 
-            const part2 = `
-<span class="explainer-text" style="margin-top:10px;"><strong>Kernel Routing:</strong> The Linux Kernel sees the destination IP (10.96.0.15), checks the rules installed earlier by kube-proxy, and <strong>instantly rewrites the destination IP in the packet to 10.244.1.5</strong> (the actual Pod IP) at near-zero latency.</span>`;
+            // STEP 2/3 — Linux Kernel DNAT
+            setActive(['kernel-1', 'kernel-2'], 'highlight-user');
+            log += `<div class="step-header user-color">[STEP 2 of 3] — Linux Kernel: DNAT in action (microsecond routing)</div>
+<div class="packet-block"><span style="color:#68d391">// Packet arrives at node network interface
+// netfilter PREROUTING hook fires:
 
-            setInspector('Kernel ➔ Pod IP', part1 + part2);
-            // Flash ONLY Kernel (Mgmt is asleep)
-            await flash('kernel-2', 1000, 'highlight-user');
-            // Flash Pod
-            const pod2 = document.getElementById('pod-2-a');
-            pod2.classList.add('highlight-user');
-            await sleep(1000);
-            pod2.classList.remove('highlight-user');
+Original:  SRC 203.0.113.1:54321 → DST 10.96.0.15:80
 
-            const part3 = `
-<span class="explainer-text" style="margin-top:10px;"><strong>✅ Request Complete:</strong> The Linux Kernel routed the packet directly to the Pod — the API Server, Controller, Scheduler, kubelet, and kube-proxy were ALL asleep and untouched. That is the key insight: <strong>live app traffic NEVER touches the control plane.</strong></span>`;
-            setInspector('✅ Flow Complete', part1 + part2 + part3);
+// Kernel checks iptables, randomly picks pod (33% each):
+// Selected: 10.244.2.3:8080 (Pod on Node 2)
+
+After DNAT: SRC 203.0.113.1:54321 → DST 10.244.2.3:8080</span></div>
+<span class="explainer-text">The TCP packet hits the node's NIC. The Linux kernel's <strong>netfilter subsystem</strong> intercepts it at the PREROUTING hook <em>before any userspace process sees it</em>.<br><br>
+It executes the iptables DNAT rule written earlier by kube-proxy:<br>
+  1. Randomly selects a pod IP from the Endpoints list (load balancing!)<br>
+  2. <strong>Rewrites the destination IP</strong> in the packet header from 10.96.0.15 to 10.244.2.3<br>
+  3. Forwards the modified packet to the pod<br><br>
+→ No process woke up. No syscall to userspace. Pure kernel networking.<br>
+→ Latency added: ~1-5 microseconds.
+→ kube-proxy is STILL asleep. It wrote these rules once and is done.</span>`;
+            setInspector('[2/3] Linux Kernel DNAT → pod IP', log);
+            await waitForNextStep(); if(isAborted) return;
+
+            // STEP 3/3 — Pod responds
+            setActive(['pod-1-a', 'pod-2-a', 'pod-2-b'], 'highlight-user');
+            log += `<div class="step-header user-color">[STEP 3 of 3] — Pod processes request and responds</div>
+<div class="packet-block"><span class="http-method">HTTP/1.1 200 OK</span>
+<span class="http-header">Content-Type:</span> text/html; charset=utf-8
+<span class="http-header">Content-Length:</span> 1234
+<span style="color:#718096">
+&lt;!DOCTYPE html&gt;&lt;html&gt;...&lt;/html&gt;</span>
+</div>
+<span class="explainer-text">The packet arrives at pod <strong>10.244.2.3:8080</strong>. Your application code (nginx, Flask, Node.js...) processes it and sends the response.<br><br>
+On the return path, the kernel performs <strong>SNAT</strong> — it rewrites the SOURCE IP from the Pod IP back to the Service IP (10.96.0.15) so the user's browser sees a reply from the address it connected to.<br><br>
+<strong>FINAL SCORECARD for this request:</strong><br>
+✅ Linux Kernel (iptables DNAT/SNAT) — active<br>
+✅ Your Pod (application code) — active<br>
+💤 API Server — sleeping<br>
+💤 etcd — sleeping<br>
+💤 Controller Manager — sleeping<br>
+💤 Scheduler — sleeping<br>
+💤 kubelet — sleeping<br>
+💤 kube-proxy — sleeping<br><br>
+<strong>KEY INSIGHT: Live app traffic NEVER touches the control plane.</strong></span>`;
+            setInspector('✅ Request Complete', log);
 
             step = 3;
             updateButtons();
@@ -535,28 +702,25 @@
 
         function resetState() {
             isAborted = true;
-            if (nextStepResolver) {
-                nextStepClicked(); // Unblock pending promises
-            }
+            if (nextStepResolver) { nextStepClicked(); }
             document.getElementById('btn-next').style.display = 'none';
+            clearActive();
 
             step = 0;
             inspectorTarget.innerText = 'Status: Idle';
-            inspectorContent.innerHTML = '// The cluster is idle.\n// Click a button to inspect exactly what the data packet looks like for each Persona.';
-            
-            // Wake all, remove highlights
-            const allElements = ['dev-node', 'user-node', 'control-plane', 'api-server', 'etcd', 'controller', 'scheduler', 
-                                 'kubelet-1', 'proxy-1', 'kernel-1', 'pod-1-a', 
+            inspectorContent.innerHTML = '// The cluster is idle.\n// Click "1. Deploy App" to start the walkthrough.';
+
+            const allElements = ['dev-node', 'user-node', 'control-plane', 'api-server', 'etcd', 'controller', 'scheduler',
+                                 'kubelet-1', 'proxy-1', 'kernel-1', 'pod-1-a',
                                  'kubelet-2', 'proxy-2', 'kernel-2', 'pod-2-a', 'pod-2-b'];
-            
             allElements.forEach(id => {
                 const el = document.getElementById(id);
-                if(el) {
+                if (el) {
                     el.classList.remove('asleep', 'highlight-dev', 'highlight-user', 'highlight-os');
-                    if(id.startsWith('pod')) el.classList.remove('visible');
+                    delete el.dataset.activeClass;
+                    if (id.startsWith('pod')) el.classList.remove('visible');
                 }
             });
-
             updateButtons();
         }
 
