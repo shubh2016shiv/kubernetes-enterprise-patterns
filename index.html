@@ -188,9 +188,34 @@
         .dev-color { color: var(--dev-lane); border-left: 3px solid var(--dev-lane); background: rgba(159,122,234,0.08); }
         .user-color { color: var(--user-lane); border-left: 3px solid var(--user-lane); background: rgba(237,137,54,0.08); }
         .os-color { color: var(--warning); border-left: 3px solid var(--warning); background: rgba(236,201,75,0.08); }
+
+        .tooltip {
+            position: fixed;
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid var(--border);
+            padding: 15px;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.85rem;
+            width: 320px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.7);
+            pointer-events: none;
+            z-index: 9999;
+            backdrop-filter: blur(10px);
+            display: none;
+        }
+        .tooltip-title { font-weight: bold; font-size: 1rem; color: #90cdf4; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+        .tooltip-section { margin-bottom: 6px; line-height: 1.4; }
+        .tooltip-label { color: #f6ad55; font-weight: bold; }
     </style>
 </head>
 <body>
+
+    <div id="tooltip" class="tooltip">
+        <div id="tooltip-name" class="tooltip-title">Component Name</div>
+        <div class="tooltip-section"><span class="tooltip-label">Simple:</span> <span id="tooltip-simple"></span></div>
+        <div class="tooltip-section"><span class="tooltip-label">Technical:</span> <span id="tooltip-tech" style="color: #a0aec0;"></span></div>
+    </div>
 
     <div class="sidebar">
         <h2>Two Personas, Two Lanes</h2>
@@ -217,12 +242,12 @@
             
             <!-- Two Personas / Origins -->
             <div class="personas-col">
-                <div class="persona dev" id="dev-node">
+                <div class="persona dev" id="dev-node" data-name="Developer (kubectl)" data-simple="The remote control for the cluster." data-tech="A CLI tool that translates commands into RESTful JSON payloads sent to the API Server.">
                     👨‍💻 Developer<br><small style="font-weight:normal; opacity:0.8;">(kubectl)</small>
                     <div class="lane-label">Lane 1: Mgmt Traffic ➔</div>
                 </div>
                 
-                <div class="persona user" id="user-node">
+                <div class="persona user" id="user-node" data-name="End User (Web Browser)" data-simple="The person using your actual application." data-tech="An external client initiating a TCP/HTTP connection to the exposed NodePort or LoadBalancer.">
                     🧑‍💼 End User<br><small style="font-weight:normal; opacity:0.8;">(Web Browser)</small>
                     <div class="lane-label">Lane 2: App Traffic ➔</div>
                 </div>
@@ -234,22 +259,22 @@
                 <div class="plane control-plane" id="control-plane">
                     <div class="plane-title">Control Plane<br><span style="font-size: 0.75rem; font-weight: normal; color: #a0aec0;">Speaks JSON & gRPC</span></div>
                     
-                    <div class="component" id="api-server">
+                    <div class="component" id="api-server" data-name="API Server" data-simple="The front door and gatekeeper of the cluster." data-tech="A stateless REST server that validates, mutates, and authenticates all requests before reading/writing state to etcd.">
                         <span class="comp-title">API Server</span>
                         <span class="comp-sub">(The JSON Gateway)</span>
                     </div>
 
-                    <div class="component" id="etcd">
+                    <div class="component" id="etcd" data-name="etcd" data-simple="The cluster's ultimate source of truth and database." data-tech="A highly available, distributed key-value store utilizing the Raft consensus algorithm to persist cluster state.">
                         <span class="comp-title">etcd</span>
                         <span class="comp-sub">(The Database / Truth)</span>
                     </div>
                     
-                    <div class="component" id="controller">
+                    <div class="component" id="controller" data-name="Controller Manager" data-simple="The brain that keeps things running as requested." data-tech="A daemon running non-terminating control loops (like Deployment, Endpoint controllers) that reconcile actual state to desired state.">
                         <span class="comp-title">Controller Manager</span>
                         <span class="comp-sub">(Generates Endpoints)</span>
                     </div>
                     
-                    <div class="component" id="scheduler">
+                    <div class="component" id="scheduler" data-name="Scheduler" data-simple="The placement engine that decides where apps live." data-tech="Evaluates unscheduled Pods against Node capacities, taints, and affinity rules, then binds the Pod to a Node by updating etcd.">
                         <span class="comp-title">Scheduler</span>
                         <span class="comp-sub">← ONLY during Pod creation</span>
                     </div>
@@ -260,47 +285,47 @@
                     <div class="plane worker-node" id="node-1">
                         <div class="plane-title">Worker Node 1</div>
                         
-                        <div class="component" id="kubelet-1">
+                        <div class="component" id="kubelet-1" data-name="kubelet + containerd" data-simple="The node captain that actually runs the containers." data-tech="The node agent that monitors assigned Pods via the API Server and interacts with the CRI (containerd) and CNI to manage container lifecycles and networking.">
                             <span class="comp-title">kubelet + containerd</span>
                             <span class="comp-sub">← ONLY for container lifecycle</span>
                         </div>
                         
-                        <div class="component proxy-style" id="proxy-1">
+                        <div class="component proxy-style" id="proxy-1" data-name="kube-proxy" data-simple="The network rule installer (not a real proxy!)." data-tech="A daemonset that watches Service/Endpoint changes and programs the Linux kernel (iptables/IPVS) to route traffic to Pod IPs.">
                             <span class="comp-title">kube-proxy</span>
                             <span class="comp-sub">(The Rule Installer)</span>
                         </div>
                         
-                        <div class="component kernel-style" id="kernel-1">
+                        <div class="component kernel-style" id="kernel-1" data-name="Linux Kernel Networking" data-simple="The ultra-fast mail sorter that delivers traffic." data-tech="The OS-level netfilter framework executing PREROUTING DNAT rules to intercept and forward packets at the network layer.">
                             <span class="comp-title">Linux Kernel Networking</span>
                             <span class="comp-sub">(iptables / IPVS rules)</span>
                         </div>
 
                         <div class="pod-area" id="pod-area-1">
-                            <div class="pod" id="pod-1-a">App</div>
+                            <div class="pod" id="pod-1-a" data-name="Pod" data-simple="The wrapper around your actual running application." data-tech="The smallest deployable computing unit in K8s, consisting of one or more containers sharing a network namespace (IP) and cgroups.">App</div>
                         </div>
                     </div>
 
                     <div class="plane worker-node" id="node-2">
                         <div class="plane-title">Worker Node 2</div>
                         
-                        <div class="component" id="kubelet-2">
+                        <div class="component" id="kubelet-2" data-name="kubelet + containerd" data-simple="The node captain that actually runs the containers." data-tech="The node agent that monitors assigned Pods via the API Server and interacts with the CRI (containerd) and CNI to manage container lifecycles and networking.">
                             <span class="comp-title">kubelet + containerd</span>
                             <span class="comp-sub">← ONLY for container lifecycle</span>
                         </div>
                         
-                        <div class="component proxy-style" id="proxy-2">
+                        <div class="component proxy-style" id="proxy-2" data-name="kube-proxy" data-simple="The network rule installer (not a real proxy!)." data-tech="A daemonset that watches Service/Endpoint changes and programs the Linux kernel (iptables/IPVS) to route traffic to Pod IPs.">
                             <span class="comp-title">kube-proxy</span>
                             <span class="comp-sub">(The Rule Installer)</span>
                         </div>
                         
-                        <div class="component kernel-style" id="kernel-2">
+                        <div class="component kernel-style" id="kernel-2" data-name="Linux Kernel Networking" data-simple="The ultra-fast mail sorter that delivers traffic." data-tech="The OS-level netfilter framework executing PREROUTING DNAT rules to intercept and forward packets at the network layer.">
                             <span class="comp-title">Linux Kernel Networking</span>
                             <span class="comp-sub">(iptables / IPVS rules)</span>
                         </div>
 
                         <div class="pod-area" id="pod-area-2">
-                            <div class="pod" id="pod-2-a">App</div>
-                            <div class="pod" id="pod-2-b">App</div>
+                            <div class="pod" id="pod-2-a" data-name="Pod" data-simple="The wrapper around your actual running application." data-tech="The smallest deployable computing unit in K8s, consisting of one or more containers sharing a network namespace (IP) and cgroups.">App</div>
+                            <div class="pod" id="pod-2-b" data-name="Pod" data-simple="The wrapper around your actual running application." data-tech="The smallest deployable computing unit in K8s, consisting of one or more containers sharing a network namespace (IP) and cgroups.">App</div>
                         </div>
                     </div>
                 </div>
@@ -378,6 +403,39 @@
                 delete el.dataset.activeClass;
             });
         }
+
+        // --- TOOLTIP LOGIC ---
+        const tooltip = document.getElementById('tooltip');
+        const tooltipName = document.getElementById('tooltip-name');
+        const tooltipSimple = document.getElementById('tooltip-simple');
+        const tooltipTech = document.getElementById('tooltip-tech');
+
+        document.querySelectorAll('[data-name]').forEach(el => {
+            el.addEventListener('mouseenter', (e) => {
+                tooltipName.innerText = el.dataset.name;
+                tooltipSimple.innerText = el.dataset.simple;
+                tooltipTech.innerText = el.dataset.tech;
+                tooltip.style.display = 'block';
+            });
+            el.addEventListener('mousemove', (e) => {
+                let x = e.clientX + 15;
+                let y = e.clientY + 15;
+                
+                // Keep tooltip on screen
+                if (x + tooltip.offsetWidth > window.innerWidth) {
+                    x = e.clientX - tooltip.offsetWidth - 15;
+                }
+                if (y + tooltip.offsetHeight > window.innerHeight) {
+                    y = e.clientY - tooltip.offsetHeight - 15;
+                }
+                
+                tooltip.style.left = x + 'px';
+                tooltip.style.top = y + 'px';
+            });
+            el.addEventListener('mouseleave', () => {
+                tooltip.style.display = 'none';
+            });
+        });
 
         function toggleSleep(elementIds, isAsleep) {
             elementIds.forEach(id => {
