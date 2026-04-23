@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Kubernetes Architecture & Two Lanes of Traffic</title>
+    <style>
+        :root {
+            --bg: #1a202c;
+            --text: #f7fafc;
+            --panel: #2d3748;
+            --border: #4a5568;
+            --accent: #3182ce;
+            --success: #48bb78;
+            --warning: #ecc94b;
+            --danger: #e53e3e;
+            --kernel: #c05621;
+            --packet: #63b3ed;
+            --dev-lane: #9f7aea;
+            --user-lane: #ed8936;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 360px;
+            background-color: var(--panel);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.5);
+            z-index: 10;
+            overflow-y: auto;
+        }
+
+        h2 { margin-top: 0; font-size: 1.3rem; border-bottom: 2px solid var(--border); padding-bottom: 10px; line-height: 1.4;}
+        
+        .phase-label { 
+            font-size: 0.85rem; color: #cbd5e0; text-transform: uppercase; font-weight: bold; 
+            margin-top: 15px; padding: 5px 8px; background: rgba(0,0,0,0.2); border-left: 4px solid;
+        }
+        
+        button {
+            background-color: var(--accent); color: white; border: none; padding: 12px 15px;
+            border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: bold;
+            text-align: left; transition: 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            position: relative; overflow: hidden; border: 1px solid transparent;
+        }
+        button:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.1); box-shadow: 0 4px 8px rgba(0,0,0,0.4);}
+        button:disabled { background-color: var(--border); cursor: not-allowed; opacity: 0.6; transform: none; box-shadow: none;}
+        button small { font-weight: normal; font-family: monospace; display: block; margin-top: 4px; color: #e2e8f0; opacity: 0.9; }
+
+        .btn-dev { border-left: 4px solid var(--dev-lane); }
+        .btn-user { background-color: #2b6cb0; border-left: 4px solid var(--user-lane); }
+
+        /* The Rule of Thumb Box */
+        .rule-box {
+            background-color: #171923; border: 1px solid var(--border); border-radius: 6px;
+            padding: 15px; font-size: 0.85rem; margin-top: 10px; line-height: 1.5;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+        .rule-box strong { color: #fff; font-size: 0.95rem; display: block; margin-bottom: 8px; border-bottom: 1px dashed #4a5568; padding-bottom: 5px;}
+        .rule-box span { display: block; margin-bottom: 5px; }
+        .rule-box .highlight-do { color: var(--dev-lane); font-weight: bold; }
+        .rule-box .highlight-data { color: var(--user-lane); font-weight: bold; }
+
+        /* Main Stage */
+        .main-stage { flex-grow: 1; display: flex; flex-direction: column; height: 100%; }
+
+        .architecture-view {
+            flex-grow: 1; padding: 20px; display: flex; justify-content: flex-start; align-items: flex-start;
+            overflow-y: auto; overflow-x: auto; background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 30px 30px;
+            padding-top: 40px; gap: 40px;
+        }
+
+        /* Personas Column (Lane Origins) */
+        .personas-col {
+            display: flex; flex-direction: column; gap: 80px; margin-left: 20px; margin-top: 40px;
+        }
+
+        .persona {
+            padding: 15px 25px; border-radius: 30px; font-weight: bold; font-size: 1rem;
+            text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 3px solid;
+            width: 200px; transition: all 0.3s ease; position: relative;
+        }
+        
+        .persona.dev { background-color: #44337a; color: #fff; border-color: var(--dev-lane); }
+        .persona.user { background-color: #7b341e; color: #fff; border-color: var(--user-lane); margin-top: auto; margin-bottom: 80px;}
+        
+        .lane-label {
+            position: absolute; right: -130px; top: 50%; transform: translateY(-50%);
+            font-size: 0.8rem; font-weight: bold; background: #000; padding: 4px 8px; border-radius: 4px;
+            opacity: 0.8; white-space: nowrap;
+        }
+        .dev .lane-label { color: var(--dev-lane); }
+        .user .lane-label { color: var(--user-lane); }
+
+        /* Cluster Area */
+        .cluster-area { display: flex; gap: 40px; flex-grow: 1; min-width: 700px; }
+
+        .plane {
+            border-radius: 12px; padding: 15px; display: flex; flex-direction: column; align-items: center; gap: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.4); border: 2px solid var(--border); transition: all 0.5s ease; position: relative;
+        }
+        .control-plane { background-color: #2c5282; width: 300px; }
+        .worker-node { background-color: #2a4365; width: 280px; justify-content: flex-start; }
+
+        .plane-title { font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; text-transform: uppercase; text-align: center; }
+
+        .component {
+            background-color: var(--border); padding: 12px; border-radius: 6px; width: 88%;
+            text-align: center; font-weight: 500; font-size: 0.9rem; transition: all 0.3s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+        }
+        .comp-title { font-weight: bold; display: block; margin-bottom: 3px; }
+        .comp-sub { font-size: 0.75rem; color: #cbd5e0; font-family: monospace; display: block; }
+
+        .proxy-style { border-left: 4px solid var(--warning); }
+        .kernel-style { background-color: var(--kernel); border: 2px dashed #fbd38d; }
+
+        .pod-area {
+            display: flex; gap: 12px; justify-content: center; width: 100%; flex-wrap: wrap;
+            padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.2); margin-top: auto;
+        }
+        .pod {
+            background-color: #805ad5; border: 2px solid #b794f4; border-radius: 50%;
+            width: 45px; height: 45px; display: flex; align-items: center; justify-content: center;
+            font-size: 0.8rem; font-weight: bold; opacity: 0; transform: scale(0.5); transition: all 0.5s;
+        }
+        .pod.visible { opacity: 1; transform: scale(1); }
+
+        /* Asleep State */
+        .asleep { opacity: 0.25; filter: grayscale(100%); border-color: transparent !important; box-shadow: none !important; }
+        .asleep::after {
+            content: "💤 SLEEPING"; position: absolute; top: -10px; right: -10px;
+            background: #000; color: #fff; padding: 2px 8px; border-radius: 10px;
+            font-size: 0.7rem; font-weight: bold; z-index: 5; opacity: 1 !important; filter: none !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        /* Animations */
+        .highlight-dev { box-shadow: 0 0 25px var(--dev-lane); border-color: #fff !important; transform: scale(1.05); z-index: 5; background-color: var(--dev-lane) !important; color: #fff;}
+        .highlight-user { box-shadow: 0 0 25px var(--user-lane); border-color: #fff !important; transform: scale(1.05); z-index: 5; background-color: var(--user-lane) !important; color: #000;}
+        .highlight-os { box-shadow: 0 0 20px var(--warning); border-color: var(--warning) !important; transform: scale(1.05); z-index: 5; background-color: var(--warning) !important; color: #000;}
+
+        /* Data Inspector */
+        .data-inspector {
+            height: 400px; background-color: #171923; border-top: 3px solid var(--border);
+            display: flex; flex-direction: column;
+        }
+        .inspector-header { 
+            background-color: #2d3748; padding: 10px 15px; font-weight: bold; display: flex; 
+            justify-content: space-between; align-items: center; border-bottom: 1px solid #000;
+        }
+        
+        /* The Next Step Button */
+        #btn-next {
+            background-color: var(--success); color: #000; border: none; padding: 6px 16px;
+            border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: bold;
+            display: none; box-shadow: 0 0 10px rgba(72,187,120,0.6);
+            animation: pulse 1.5s infinite; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        #btn-next:hover { transform: scale(1.05); }
+        @keyframes pulse { 0% { box-shadow: 0 0 5px rgba(72,187,120,0.5); } 50% { box-shadow: 0 0 15px rgba(72,187,120,0.9); } 100% { box-shadow: 0 0 5px rgba(72,187,120,0.5); } }
+
+        .inspector-content {
+            padding: 15px; font-family: 'Courier New', Courier, monospace; font-size: 0.85rem;
+            color: #a0aec0; overflow-y: auto; flex-grow: 1; white-space: pre-wrap; line-height: 1.5; scroll-behavior: smooth;
+        }
+        
+        .packet-block { background: #000; padding: 15px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #4a5568;}
+        .http-method { color: #f6ad55; font-weight: bold;}
+        .http-header { color: #90cdf4;}
+        .json-key { color: #f687b3;}
+        .json-string { color: #68d391;}
+        .explainer-text { color: #ecc94b; margin-top: 10px; display: block; background: rgba(236, 201, 75, 0.1); padding: 10px; border-left: 3px solid #ecc94b;}
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>Two Personas, Two Lanes</h2>
+        
+        <div class="rule-box">
+            <strong>The Summary Rule of Thumb</strong>
+            <span>• Ask K8s to <span class="highlight-do">DO something</span> ➔ Send JSON to API Server</span>
+            <span>• Ask App for <span class="highlight-data">DATA</span> ➔ Send HTTP/TCP to Service IP</span>
+        </div>
+        
+        <div class="phase-label" style="border-color: var(--dev-lane);">Phase 1: Setup (Developer Lane)</div>
+        <button id="btn-deploy" class="btn-dev" onclick="runDeployment()">1. Deploy App<br><small>kubectl apply -f deployment.yaml</small></button>
+        <button id="btn-expose" class="btn-dev" onclick="runExpose()" disabled>2. Expose Service<br><small>kubectl expose deploy web</small></button>
+        
+        <div class="phase-label" style="border-color: var(--user-lane); margin-top: 20px;">Phase 2: Traffic (User Lane)</div>
+        <button id="btn-traffic" class="btn-user" onclick="runTraffic()" disabled>3. Visit Website<br><small>curl http://service-ip</small></button>
+        
+        <button id="btn-reset" onclick="resetState()" style="background-color: var(--border); margin-top: 20px;">Reset Environment</button>
+    </div>
+
+    <div class="main-stage">
+        
+        <div class="architecture-view">
+            
+            <!-- Two Personas / Origins -->
+            <div class="personas-col">
+                <div class="persona dev" id="dev-node">
+                    👨‍💻 Developer<br><small style="font-weight:normal; opacity:0.8;">(kubectl)</small>
+                    <div class="lane-label">Lane 1: Mgmt Traffic ➔</div>
+                </div>
+                
+                <div class="persona user" id="user-node">
+                    🧑‍💼 End User<br><small style="font-weight:normal; opacity:0.8;">(Web Browser)</small>
+                    <div class="lane-label">Lane 2: App Traffic ➔</div>
+                </div>
+            </div>
+
+            <div class="cluster-area">
+                
+                <!-- CONTROL PLANE (Lane 1 Destination) -->
+                <div class="plane control-plane" id="control-plane">
+                    <div class="plane-title">Control Plane<br><span style="font-size: 0.75rem; font-weight: normal; color: #a0aec0;">Speaks JSON & gRPC</span></div>
+                    
+                    <div class="component" id="api-server">
+                        <span class="comp-title">API Server</span>
+                        <span class="comp-sub">(The JSON Gateway)</span>
+                    </div>
+
+                    <div class="component" id="etcd">
+                        <span class="comp-title">etcd</span>
+                        <span class="comp-sub">(The Database / Truth)</span>
+                    </div>
+                    
+                    <div class="component" id="controller">
+                        <span class="comp-title">Controller Manager</span>
+                        <span class="comp-sub">(Generates Endpoints)</span>
+                    </div>
+                    
+                    <div class="component" id="scheduler">
+                        <span class="comp-title">Scheduler</span>
+                        <span class="comp-sub">← ONLY during Pod creation</span>
+                    </div>
+                </div>
+
+                <!-- WORKER NODES (Lane 2 Destination) -->
+                <div style="display: flex; flex-direction: column; gap: 30px;">
+                    <div class="plane worker-node" id="node-1">
+                        <div class="plane-title">Worker Node 1</div>
+                        
+                        <div class="component" id="kubelet-1">
+                            <span class="comp-title">kubelet + containerd</span>
+                            <span class="comp-sub">← ONLY for container lifecycle</span>
+                        </div>
+                        
+                        <div class="component proxy-style" id="proxy-1">
+                            <span class="comp-title">kube-proxy</span>
+                            <span class="comp-sub">(The Rule Installer)</span>
+                        </div>
+                        
+                        <div class="component kernel-style" id="kernel-1">
+                            <span class="comp-title">Linux Kernel Networking</span>
+                            <span class="comp-sub">(iptables / IPVS rules)</span>
+                        </div>
+
+                        <div class="pod-area" id="pod-area-1">
+                            <div class="pod" id="pod-1-a">App</div>
+                        </div>
+                    </div>
+
+                    <div class="plane worker-node" id="node-2">
+                        <div class="plane-title">Worker Node 2</div>
+                        
+                        <div class="component" id="kubelet-2">
+                            <span class="comp-title">kubelet + containerd</span>
+                            <span class="comp-sub">← ONLY for container lifecycle</span>
+                        </div>
+                        
+                        <div class="component proxy-style" id="proxy-2">
+                            <span class="comp-title">kube-proxy</span>
+                            <span class="comp-sub">(The Rule Installer)</span>
+                        </div>
+                        
+                        <div class="component kernel-style" id="kernel-2">
+                            <span class="comp-title">Linux Kernel Networking</span>
+                            <span class="comp-sub">(iptables / IPVS rules)</span>
+                        </div>
+
+                        <div class="pod-area" id="pod-area-2">
+                            <div class="pod" id="pod-2-a">App</div>
+                            <div class="pod" id="pod-2-b">App</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Sniffer -->
+        <div class="data-inspector">
+            <div class="inspector-header">
+                <div>
+                    <span>📡 Network Sniffer - Raw Wire Data</span>
+                    <span id="inspector-target" style="color: #68d391; margin-left: 15px; font-weight: normal;">Status: Idle</span>
+                </div>
+                <button id="btn-next" onclick="nextStepClicked()">Next Step ➔</button>
+            </div>
+            <div class="inspector-content" id="inspector-content">
+                // The cluster is idle.
+                // Click a button to inspect exactly what the data packet looks like for each Persona.
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let step = 0;
+        let isAborted = false;
+        let nextStepResolver = null;
+        
+        const inspectorContent = document.getElementById('inspector-content');
+        const inspectorTarget = document.getElementById('inspector-target');
+
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        // --- STEP CONTROL LOGIC ---
+        function waitForNextStep() {
+            return new Promise(resolve => {
+                const btn = document.getElementById('btn-next');
+                btn.style.display = 'block';
+                nextStepResolver = resolve;
+            });
+        }
+
+        function nextStepClicked() {
+            if (nextStepResolver) {
+                document.getElementById('btn-next').style.display = 'none';
+                const resolve = nextStepResolver;
+                nextStepResolver = null;
+                resolve();
+            }
+        }
+
+        function setInspector(target, contentHTML) {
+            inspectorTarget.innerText = `Intercepted: ${target}`;
+            inspectorContent.innerHTML = contentHTML;
+            inspectorContent.scrollTop = inspectorContent.scrollHeight;
+        }
+
+        async function flash(elementId, duration = 800, highlightClass = 'highlight-dev') {
+            const el = document.getElementById(elementId);
+            if(!el) return;
+            
+            const wasAsleep = el.classList.contains('asleep');
+            if (wasAsleep) el.classList.remove('asleep'); 
+            
+            el.classList.add(highlightClass);
+            await sleep(duration);
+            el.classList.remove(highlightClass);
+            
+            if (wasAsleep) el.classList.add('asleep');
+        }
+
+        function toggleSleep(elementIds, isAsleep) {
+            elementIds.forEach(id => {
+                const el = document.getElementById(id);
+                if(el) {
+                    if(isAsleep) el.classList.add('asleep');
+                    else el.classList.remove('asleep');
+                }
+            });
+        }
+
+        function disableSidebarButtons() {
+            // Disable all sidebar phase buttons but NEVER disable #btn-next or #btn-reset
+            ['btn-deploy', 'btn-expose', 'btn-traffic'].forEach(id => {
+                document.getElementById(id).disabled = true;
+            });
+        }
+
+        function updateButtons() {
+            document.getElementById('btn-deploy').disabled = step >= 1;
+            document.getElementById('btn-expose').disabled = step !== 1;
+            document.getElementById('btn-traffic').disabled = step < 2;
+        }
+
+        // --- PHASE 1: SETUP (DEVELOPER LANE) ---
+        async function runDeployment() {
+            isAborted = false;
+            disableSidebarButtons();
+            
+            const part1 = `
+<div style="color: var(--dev-lane); font-weight: bold; margin-bottom: 5px;">[STEP 1: DEVELOPER SENDS JSON]</div>
+<div class="packet-block">
+<span class="http-method">POST</span> /apis/apps/v1/namespaces/default/deployments HTTP/1.1
+<span class="http-header">Host:</span> api.my-cluster.com:6443
+<span class="http-header">Authorization:</span> Bearer &lt;your-admin-token&gt;
+<span class="http-header">Content-Type:</span> application/json
+
+{
+  <span class="json-key">"apiVersion"</span>: <span class="json-string">"apps/v1"</span>,
+  <span class="json-key">"kind"</span>: <span class="json-string">"Deployment"</span>,
+  <span class="json-key">"metadata"</span>: { <span class="json-key">"name"</span>: <span class="json-string">"my-app"</span> },
+  <span class="json-key">"spec"</span>: {
+    <span class="json-key">"replicas"</span>: 3,
+    <span class="json-key">"template"</span>: { ... }
+  }
+}
+</div>
+<span class="explainer-text"><strong>1. The Request:</strong> kubectl converts your YAML into this JSON payload and POSTs it to the API Server.</span><br>`;
+            
+            setInspector('Developer ➔ API Server (Lane 1)', part1);
+            flash('dev-node', 1000, 'highlight-dev');
+            await waitForNextStep(); if(isAborted) return;
+
+            const part2 = `
+<span class="explainer-text" style="margin-top: 10px;"><strong>2. State Storage:</strong> The API Server receives the JSON and permanently saves this "Desired State" into the etcd database.</span><br>`;
+            
+            setInspector('API Server ➔ etcd', part1 + part2);
+            await flash('api-server', 800, 'highlight-dev');
+            await flash('etcd', 600, 'highlight-dev');
+            await waitForNextStep(); if(isAborted) return;
+            
+            const part3 = `
+<span class="explainer-text" style="margin-top: 10px;"><strong>3. Reconciliation:</strong> The Controller sees the new Deployment and creates Pod objects. The Scheduler assigns them to Nodes. The Kubelets start the actual containers.</span><br>`;
+            
+            setInspector('Control Loops & Kubelets', part1 + part2 + part3);
+            await flash('controller', 500, 'highlight-dev');
+            await flash('scheduler', 500, 'highlight-dev');
+            flash('kubelet-1', 600, 'highlight-dev');
+            await flash('kubelet-2', 600, 'highlight-dev');
+
+            document.getElementById('pod-1-a').classList.add('visible');
+            document.getElementById('pod-2-a').classList.add('visible');
+            document.getElementById('pod-2-b').classList.add('visible');
+
+            const part4 = `
+<span class="explainer-text" style="margin-top:10px;"><strong>✅ Deploy Complete:</strong> 3 Pods are now running (1 on Node 1, 2 on Node 2). The app is deployed but NOT yet reachable — there is no Service yet. Click <em>Next Step</em> to continue to exposing the service.</span>`;
+            setInspector('Pods Running — Deploy Done', part1 + part2 + part3 + part4);
+            await waitForNextStep(); if(isAborted) return;
+            
+            step = 1;
+            updateButtons();
+        }
+
+        async function runExpose() {
+            isAborted = false;
+            disableSidebarButtons();
+            
+            const part1 = `
+<div style="color: var(--dev-lane); font-weight: bold; margin-bottom: 5px;">[STEP 1: SERVICE CREATION]</div>
+<div class="packet-block">
+<span class="http-method">POST</span> /api/v1/namespaces/default/services HTTP/1.1
+<span style="color:#a0aec0;">// The Service is created as a JSON Dictionary.</span>
+<span style="color:#a0aec0;">// Controller generates JSON "Endpoints" mapping IP to Pods.</span>
+</div>
+<span class="explainer-text"><strong>API Action:</strong> You tell the API to expose the app. The Controller creates the Endpoints mapping.</span><br>`;
+
+            setInspector('API Server ➔ Controller', part1);
+            flash('dev-node', 800, 'highlight-dev');
+            await sleep(300);
+            await flash('api-server', 600, 'highlight-dev');
+            await flash('controller', 800, 'highlight-dev');
+            await waitForNextStep(); if(isAborted) return;
+
+            const part2 = `
+<span class="explainer-text" style="margin-top:10px;"><strong>Rule Installation:</strong> kube-proxy reads the Endpoints JSON, then programs the Linux Kernel with OS firewall commands.</span>
+<div class="packet-block" style="border-color: var(--warning); margin-top:10px;">
+<span style="color: #ecc94b;">$ iptables -t nat -A PREROUTING -d 10.96.0.15 -j DNAT --to-destination 10.244.1.5</span>
+</div>`;
+
+            setInspector('Kube-Proxy ➔ Linux Kernel', part1 + part2);
+            flash('proxy-1', 1200, 'highlight-os');
+            await flash('proxy-2', 1200, 'highlight-os');
+            flash('kernel-1', 1000, 'highlight-os');
+            await flash('kernel-2', 1000, 'highlight-os');
+            await waitForNextStep(); if(isAborted) return;
+
+            const part3 = `
+<span class="explainer-text" style="margin-top:10px;"><strong>Setup Complete:</strong> The Control Plane and kube-proxy go back to SLEEP. They do not handle active traffic.</span>`;
+            
+            setInspector('Setup Complete', part1 + part2 + part3);
+            // PUT MANAGEMENT LANE TO SLEEP!
+            toggleSleep(['dev-node', 'control-plane', 'api-server', 'etcd', 'controller', 'scheduler', 'kubelet-1', 'kubelet-2', 'proxy-1', 'proxy-2'], true);
+            
+            step = 2;
+            updateButtons();
+        }
+
+        // --- PHASE 2: TRAFFIC (USER LANE) ---
+        async function runTraffic() {
+            isAborted = false;
+            disableSidebarButtons();
+            
+            const part1 = `
+<div style="color: var(--user-lane); font-weight: bold; margin-bottom: 5px;">[STEP 1: USER REQUEST]</div>
+<div class="packet-block">
+<span class="http-method">GET</span> /index.html HTTP/1.1
+<span class="http-header">Host:</span> 10.96.0.15  <span style="color:gray;">&lt;-- (This is the K8s Service IP)</span>
+<span class="http-header">User-Agent:</span> Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+<span class="http-header">Accept:</span> text/html
+</div>
+<span class="explainer-text"><strong>The Request:</strong> The end user sends a standard HTTP packet. The Kubernetes Service is unaware of JSON or K8s concepts.</span><br>`;
+
+            setInspector('End User ➔ Service IP (Lane 2)', part1);
+            flash('user-node', 1000, 'highlight-user');
+            await waitForNextStep(); if(isAborted) return;
+
+            const part2 = `
+<span class="explainer-text" style="margin-top:10px;"><strong>Kernel Routing:</strong> The Linux Kernel sees the destination IP (10.96.0.15), checks the rules installed earlier by kube-proxy, and <strong>instantly rewrites the destination IP in the packet to 10.244.1.5</strong> (the actual Pod IP) at near-zero latency.</span>`;
+
+            setInspector('Kernel ➔ Pod IP', part1 + part2);
+            // Flash ONLY Kernel (Mgmt is asleep)
+            await flash('kernel-2', 1000, 'highlight-user');
+            // Flash Pod
+            const pod2 = document.getElementById('pod-2-a');
+            pod2.classList.add('highlight-user');
+            await sleep(1000);
+            pod2.classList.remove('highlight-user');
+
+            const part3 = `
+<span class="explainer-text" style="margin-top:10px;"><strong>✅ Request Complete:</strong> The Linux Kernel routed the packet directly to the Pod — the API Server, Controller, Scheduler, kubelet, and kube-proxy were ALL asleep and untouched. That is the key insight: <strong>live app traffic NEVER touches the control plane.</strong></span>`;
+            setInspector('✅ Flow Complete', part1 + part2 + part3);
+
+            step = 3;
+            updateButtons();
+        }
+
+        function resetState() {
+            isAborted = true;
+            if (nextStepResolver) {
+                nextStepClicked(); // Unblock pending promises
+            }
+            document.getElementById('btn-next').style.display = 'none';
+
+            step = 0;
+            inspectorTarget.innerText = 'Status: Idle';
+            inspectorContent.innerHTML = '// The cluster is idle.\n// Click a button to inspect exactly what the data packet looks like for each Persona.';
+            
+            // Wake all, remove highlights
+            const allElements = ['dev-node', 'user-node', 'control-plane', 'api-server', 'etcd', 'controller', 'scheduler', 
+                                 'kubelet-1', 'proxy-1', 'kernel-1', 'pod-1-a', 
+                                 'kubelet-2', 'proxy-2', 'kernel-2', 'pod-2-a', 'pod-2-b'];
+            
+            allElements.forEach(id => {
+                const el = document.getElementById(id);
+                if(el) {
+                    el.classList.remove('asleep', 'highlight-dev', 'highlight-user', 'highlight-os');
+                    if(id.startsWith('pod')) el.classList.remove('visible');
+                }
+            });
+
+            updateButtons();
+        }
+
+    </script>
+</body>
+</html>
