@@ -1,0 +1,116 @@
+# =============================================================================
+# FILE:    scheduling-constraints-demo.yaml
+# KIND:    Deployment
+# PURPOSE: Demonstrate topology spread, node affinity, and tolerations using a
+#          small workload that is safe for the local kind cluster.
+# WHEN:    setup/10-enterprise-patterns - after HPA and PDB introduce availability
+#          as an enterprise concern.
+# ENTERPRISE EQUIVALENT: Production platforms spread workloads across nodes,
+#                        availability zones, GPU pools, and dedicated node groups
+#                        on EKS, GKE, and AKS.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: scheduling-constraints-demo
+  namespace: applications
+  labels:
+    app: scheduling-constraints-demo
+    app.kubernetes.io/component: scheduling-policy-demo
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
+  annotations:
+    description: "Small workload used to inspect scheduler placement constraints."
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: scheduling-constraints-demo
+
+  template:
+    metadata:
+      labels:
+        app: scheduling-constraints-demo
+        tier: learning
+
+    spec:
+      # Topology spread asks the scheduler to avoid placing all replicas in the
+      # same failure domain. In this local kind cluster, the failure domain is a
+      # node hostname. In enterprise, it is often an availability zone.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: scheduling-constraints-demo
+
+      affinity:
+        nodeAffinity:
+          # Required rules must be true or the pod cannot schedule.
+          # This rule is intentionally safe: every Kubernetes node has an
+          # operating system label, and kind Linux nodes match it.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+
+          # Preferred rules are best-effort. If they cannot be satisfied, the pod
+          # can still run. This demonstrates how platform teams express "please
+          # prefer this" without blocking scheduling on a small cluster.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+
+      tolerations:
+        # A toleration does not force a pod onto a tainted node. It only says the
+        # pod is allowed to run there if the scheduler chooses that node.
+        #
+        # This is a safe teaching example because your kind nodes are not tainted
+        # with dedicated=learning. In enterprise, GPU nodes might be tainted
+        # nvidia.com/gpu=true:NoSchedule so only GPU workloads land there.
+        - key: dedicated
+          operator: Equal
+          value: learning
+          effect: NoSchedule
+
+      containers:
+        - name: web
+          image: nginx:1.25.4
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 80
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "150m"
+              memory: "128Mi"
+
+# =============================================================================
+# TERM TRANSLATION
+#
+# Topology spread:
+#   "Try not to put every copy in the same failure bucket."
+#
+# Node affinity:
+#   "Prefer or require nodes with specific labels."
+#
+# Toleration:
+#   "This pod may run on nodes with a matching taint."
+# =============================================================================

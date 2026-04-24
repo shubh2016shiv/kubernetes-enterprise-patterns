@@ -1,23 +1,42 @@
 # =============================================================================
-# FILE: 10-enterprise-patterns/horizontal-pod-autoscaler.yaml
-# PURPOSE: Demonstrate autoscaling behavior for a stateless deployment.
+# FILE:    horizontal-pod-autoscaler.yaml
+# KIND:    HorizontalPodAutoscaler
+# PURPOSE: Scale the inference gateway Deployment between 3 and 6 replicas based
+#          on average CPU utilization.
+# WHEN:    setup/10-enterprise-patterns - after resource requests and limits are
+#          understood from setup/08-resource-management.
+# ENTERPRISE EQUIVALENT: HPA is used on EKS, GKE, and AKS for stateless services.
+#                        Enterprises often add KEDA or custom metrics when CPU is
+#                        not the right signal for user traffic.
 # =============================================================================
 
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
+
 metadata:
-  name: nginx-hpa
+  name: inference-gateway-hpa
   namespace: applications
+  labels:
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: autoscaling-policy
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "CPU-based autoscaler for the nginx deployment"
+    description: "CPU-based autoscaler for the inference-gateway Deployment."
 
 spec:
   scaleTargetRef:
+    # The HPA does not run pods itself. It changes the replica count on this
+    # target Deployment, and the Deployment creates/removes pods.
     apiVersion: apps/v1
     kind: Deployment
-    name: nginx-deployment
+    name: inference-gateway-deployment
 
+  # Keep at least 3 replicas so the gateway has baseline availability even when
+  # traffic is quiet.
   minReplicas: 3
+
+  # Cap at 6 replicas so this local kind cluster does not overconsume the
+  # learner's 16 GB Windows/Docker Desktop machine.
   maxReplicas: 6
 
   metrics:
@@ -25,5 +44,33 @@ spec:
       resource:
         name: cpu
         target:
+          # Utilization compares current CPU usage against the pod's CPU request.
+          # Example: a pod requesting 100m CPU and using 70m is at 70%.
           type: Utilization
           averageUtilization: 70
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      # Scale down more slowly than scale up. This avoids removing capacity too
+      # quickly during short traffic dips.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+
+# =============================================================================
+# REQUIREMENT
+#
+# HPA needs metrics-server or another metrics API provider. If you run:
+#
+#   kubectl get hpa -n applications
+#
+# and TARGETS shows <unknown>, the HPA object is valid but metrics are missing.
+# =============================================================================

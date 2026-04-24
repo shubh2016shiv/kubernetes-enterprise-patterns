@@ -1,164 +1,222 @@
 # =============================================================================
-# FILE: 10-enterprise-patterns/network-policy.yaml
-# PURPOSE: NetworkPolicy — microsegmentation and zero-trust networking in K8s.
-#
-# DEFAULT KUBERNETES NETWORKING (THE INSECURE DEFAULT):
-#   Without NetworkPolicy: EVERY pod can talk to EVERY other pod in the cluster.
-#   A compromised pod in "monitoring" namespace can reach pods in "payments" namespace.
-#   This is NOT acceptable in enterprise — especially in regulated industries
-#   (finance, healthcare, government) where data isolation is legally required.
-#
-# WHAT NETWORK POLICY DOES:
-#   NetworkPolicy enforces firewall rules at the Pod level using labels.
-#   It defines WHICH pods can send/receive traffic TO/FROM WHICH other pods.
-#   Rules are enforced by the CNI plugin (Calico, Cilium, Weave, etc.)
-#   Note: kindnet (kind's default CNI) does NOT enforce NetworkPolicy.
-#         For testing NetworkPolicy, you need Calico or Cilium in kind.
-#         The YAMLs here are correct — they work in production with proper CNI.
-#
-# ZERO-TRUST PRINCIPLE:
-#   "Never trust, always verify."
-#   In K8s: Deny ALL traffic by default, then explicitly allow what's needed.
-#   This is the "default-deny" posture used by security-conscious enterprises.
-#
-# TWO TYPES OF RULES:
-#   ingress: Rules for INCOMING traffic TO the selected pods
-#   egress:  Rules for OUTGOING traffic FROM the selected pods
+# FILE:    network-policy.yaml
+# KIND:    NetworkPolicy
+# PURPOSE: Demonstrate zero-trust pod networking for the gateway/backend
+#          learning application.
+# WHEN:    setup/10-enterprise-patterns - after Services and health checks have
+#          shown how traffic normally flows.
+# ENTERPRISE EQUIVALENT: Calico, Cilium, Azure CNI policy, or cloud-supported
+#                        network policy enforcement on EKS, GKE, and AKS.
 # =============================================================================
 
-# ─── STEP 1: DEFAULT DENY ALL (the foundation of zero-trust) ─────────────────
-# This policy selects ALL pods in the namespace (empty podSelector = all pods)
-# and blocks ALL ingress and egress traffic by default.
-# Then we add specific allow policies ABOVE this baseline.
+# =============================================================================
+# POLICY 1: DEFAULT DENY
 #
-# In enterprise: apply this to every namespace as the FIRST policy.
-# Then create specific allow policies for known good traffic.
+# Basic idea:
+#   Without NetworkPolicy, Kubernetes networking is usually open inside the
+#   cluster. Any pod can attempt to talk to any other pod.
+#
+# Enterprise idea:
+#   Start from "deny everything" and then allow only known-good traffic.
+#
+# Important local note:
+#   NetworkPolicy enforcement depends on the CNI plugin. kind's default CNI may
+#   accept this object but not enforce it. The manifest is still production-style.
+# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
+
 metadata:
-  name: default-deny-all
+  name: default-deny-applications
   namespace: applications
+  labels:
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Default deny all ingress and egress. Override with specific allow policies."
-    # Security baseline required by: PCI-DSS, SOC2, HIPAA, CIS Benchmark
+    description: "Deny all ingress and egress until specific allow policies open required paths."
 
 spec:
-  # podSelector: Which pods this policy applies to.
-  # {} (empty) = ALL pods in the namespace
+  # Empty podSelector means "all pods in this namespace."
   podSelector: {}
 
-  # policyTypes: Which traffic directions this policy governs.
-  # Listing both Ingress and Egress activates denial of both directions.
+  # Listing both directions activates default deny for incoming and outgoing
+  # traffic on selected pods.
   policyTypes:
-    - Ingress   # Block all incoming traffic
-    - Egress    # Block all outgoing traffic
-
-  # No ingress or egress rules listed = deny everything
-  # (rules lists absent = deny; rules lists present but empty = allow nothing;
-  #  rules lists with entries = allow matching traffic)
+    - Ingress
+    - Egress
 
 ---
-# ─── STEP 2: Allow DNS egress (CoreDNS) ──────────────────────────────────────
-# DNS is fundamental — without it, pods can't resolve service names.
-# After a default-deny, DNS breaks. This policy re-enables it.
+# =============================================================================
+# POLICY 2: ALLOW DNS EGRESS
 #
-# ENTERPRISE INSIGHT: Always allow DNS before anything else.
-# Many K8s outages caused by: "applied default-deny, forgot DNS" → apps can't start.
+# Why this must exist:
+#   Pods need DNS to resolve Service names such as risk-profile-api-clusterip.
+#   A default-deny egress policy can accidentally break DNS if you forget this.
+# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
+
 metadata:
   name: allow-dns-egress
   namespace: applications
+  labels:
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Allow all pods to reach CoreDNS for name resolution"
+    description: "Allow pods to query DNS after default-deny egress is enabled."
 
 spec:
-  podSelector: {}    # All pods in this namespace
+  podSelector: {}
   policyTypes:
     - Egress
 
   egress:
-    - # Rule: allow UDP/TCP on port 53 to the kube-dns service in kube-system
-      ports:
+    - ports:
         - protocol: UDP
-          port: 53      # Standard DNS port
+          port: 53
         - protocol: TCP
-          port: 53      # DNS over TCP (for large responses)
-      # No `to` selector = allow to ANY destination
-      # In practice, CoreDNS is in kube-system namespace
+          port: 53
 
 ---
-# ─── STEP 3: Allow nginx to receive HTTP traffic ──────────────────────────────
-# Re-enables ingress to nginx pods specifically.
-# Only allows traffic from pods labeled as "frontend" (e.g., an API gateway).
+# =============================================================================
+# POLICY 3: ALLOW INGRESS TO THE GATEWAY
+#
+# Why:
+#   The gateway is the front door of this learning app. It must be reachable
+#   from trusted callers while the backend remains private.
+# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
+
 metadata:
-  name: allow-nginx-http-ingress
+  name: allow-gateway-ingress
   namespace: applications
+  labels:
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Allow HTTP traffic into nginx pods from frontend tier"
+    description: "Allow trusted traffic to reach the inference gateway pods."
 
 spec:
-  # This policy ONLY applies to pods with these labels
   podSelector:
     matchLabels:
-      app: nginx
-      tier: frontend
+      app: inference-gateway
+      tier: backend
 
   policyTypes:
     - Ingress
 
   ingress:
-    - # Rule: allow from pods with label tier=api-gateway within any namespace
-      from:
-        # namespaceSelector: Which namespaces can send traffic
-        # (leave empty to allow from all namespaces matching podSelector)
+    - from:
+        # LOCAL SHORTCUT:
+        # Allow pod callers from the applications namespace. This supports debug
+        # pods and service-to-service exercises in the learning lab.
         - namespaceSelector:
             matchLabels:
-              # Allow from any namespace labeled "environment=development"
-              # This is why we labeled our namespaces! (02-namespaces/namespaces.yaml)
               environment: development
-          # podSelector within the namespaceSelector context:
-          # The {} means ANY pod from matching namespaces
-          podSelector: {}
-
-        # Also allow from Prometheus scraping (monitoring namespace)
-        - namespaceSelector:
-            matchLabels:
-              prometheus-scrape: "true"
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: prometheus
-
+        # LOCAL SHORTCUT:
+        # The gateway is the front door service in this lab. If your local CNI
+        # enforces NetworkPolicy, this allows NodePort or port-forward style
+        # traffic to reach the gateway pods. In enterprise, narrow this to the
+        # ingress controller namespace, load balancer source ranges, or service
+        # mesh gateway identity instead of allowing every source IP.
+        - ipBlock:
+            cidr: 0.0.0.0/0
       ports:
+        # The gateway container listens on 8080. The Service exposes port 80 but
+        # NetworkPolicy protects pod traffic at the container port.
         - protocol: TCP
-          port: 80    # nginx HTTP port
+          port: 8080
 
 ---
-# ─── STEP 4: Allow monitoring egress from nginx ───────────────────────────────
-# Allow nginx pods to expose metrics to Prometheus in the monitoring namespace.
+# =============================================================================
+# POLICY 4: ALLOW GATEWAY TO CALL BACKEND
+#
+# Why:
+#   The gateway needs exactly one east-west path: call risk-profile-api pods.
+#   The backend should not be open to every pod in the namespace.
+# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
+
 metadata:
-  name: allow-nginx-metrics-egress
+  name: allow-gateway-to-risk-api
   namespace: applications
+  labels:
+    app.kubernetes.io/name: risk-profile-api
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Allow nginx pods to be scraped by Prometheus on metrics port"
+    description: "Allow gateway pods to call risk-profile-api pods."
 
 spec:
   podSelector:
     matchLabels:
-      app: nginx
+      app: risk-profile-api
+      tier: backend
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: inference-gateway
+              tier: backend
+      ports:
+        # The backend container listens on named port http, which maps to 8081
+        # in risk-profile-api-deployment.yaml.
+        - protocol: TCP
+          port: 8081
+
+---
+# =============================================================================
+# POLICY 5: ALLOW GATEWAY EGRESS TO BACKEND
+#
+# Why:
+#   If egress is default-denied, allowing backend ingress is not enough. The
+#   caller also needs permission to send traffic out.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+
+metadata:
+  name: allow-gateway-egress-to-risk-api
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
+  annotations:
+    description: "Allow gateway pods to send traffic to risk-profile-api pods."
+
+spec:
+  podSelector:
+    matchLabels:
+      app: inference-gateway
+      tier: backend
 
   policyTypes:
     - Egress
 
   egress:
     - to:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              team: sre-team   # monitoring namespace label
+              app: risk-profile-api
+              tier: backend
       ports:
         - protocol: TCP
-          port: 9090   # Prometheus port
+          port: 8081
+
+# =============================================================================
+# DEBUGGING TIP
+#
+# NetworkPolicy uses labels. If traffic is blocked, inspect labels before
+# changing ports:
+#
+#   kubectl get pods -n applications --show-labels
+#   kubectl describe networkpolicy allow-gateway-to-risk-api -n applications
+# =============================================================================

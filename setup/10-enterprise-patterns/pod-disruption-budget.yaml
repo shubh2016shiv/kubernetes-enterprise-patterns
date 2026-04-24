@@ -1,19 +1,58 @@
 # =============================================================================
-# FILE: 10-enterprise-patterns/pod-disruption-budget.yaml
-# PURPOSE: Protect service availability during planned disruptions.
+# FILE:    pod-disruption-budget.yaml
+# KIND:    PodDisruptionBudget
+# PURPOSE: Protect the inference gateway from losing too many replicas during
+#          voluntary maintenance such as node drains or cluster upgrades.
+# WHEN:    setup/10-enterprise-patterns - after Deployments and health checks
+#          have shown why ready replicas matter.
+# ENTERPRISE EQUIVALENT: Production services on EKS, GKE, and AKS commonly use
+#                        PDBs so platform maintenance does not accidentally
+#                        take down every replica of an application.
 # =============================================================================
 
 apiVersion: policy/v1
 kind: PodDisruptionBudget
+
 metadata:
-  name: nginx-pdb
+  name: inference-gateway-pdb
   namespace: applications
+  labels:
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: availability-policy
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Ensures at least 2 nginx pods remain available during voluntary disruptions"
+    description: "Keep at least two gateway pods available during voluntary disruptions."
 
 spec:
+  # minAvailable means Kubernetes should reject voluntary evictions that would
+  # leave fewer than this many matching pods Ready.
+  #
+  # The gateway Deployment starts with 3 replicas. minAvailable: 2 means:
+  #   - one pod may be voluntarily evicted during maintenance
+  #   - two pods should remain Ready for traffic
+  #   - if only two are healthy, node drain should wait or fail
   minAvailable: 2
+
   selector:
     matchLabels:
-      app: nginx
-      tier: frontend
+      app: inference-gateway
+      tier: backend
+
+# =============================================================================
+# IMPORTANT BOUNDARY
+#
+# PDB protects against voluntary disruptions, not all failures.
+#
+# Voluntary disruption examples:
+#   - kubectl drain node
+#   - cluster autoscaler removing a node
+#   - managed node group upgrade
+#
+# Involuntary disruption examples:
+#   - node power loss
+#   - kernel panic
+#   - container crash
+#
+# PDB cannot stop involuntary failures. It only tells Kubernetes-controlled
+# maintenance to preserve availability when possible.
+# =============================================================================
