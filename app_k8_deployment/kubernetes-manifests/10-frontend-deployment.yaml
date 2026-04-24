@@ -1,0 +1,109 @@
+# =============================================================================
+# FILE:    10-frontend-deployment.yaml
+# KIND:    Deployment
+# PURPOSE: Run the nginx frontend that serves the patient intake form.
+# WHEN:    app_k8_deployment - after backend Service exists.
+# ENTERPRISE EQUIVALENT: A production frontend may be served from CDN/object
+#                        storage, an ingress controller, or a web Deployment.
+#                        The Kubernetes lifecycle controls remain similar.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-intake-ui
+  namespace: patient-record-system
+  labels:
+    app: patient-intake-ui
+    tier: frontend
+    app.kubernetes.io/name: patient-intake-ui
+    app.kubernetes.io/component: frontend-ui
+    app.kubernetes.io/part-of: patient-record-system
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: patient-intake-ui
+      tier: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: patient-intake-ui
+        tier: frontend
+        app.kubernetes.io/name: patient-intake-ui
+        app.kubernetes.io/version: "1.0.0"
+    spec:
+      serviceAccountName: patient-intake-ui
+      automountServiceAccountToken: false
+      securityContext:
+        # ENTERPRISE EMPHASIS: The nginx frontend does not need root privileges
+        # or Kubernetes API access. UID 101 is the nginx user in the alpine image.
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: patient-intake-ui
+      containers:
+        - name: ui
+          image: patient-intake-ui:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: nginx-tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}

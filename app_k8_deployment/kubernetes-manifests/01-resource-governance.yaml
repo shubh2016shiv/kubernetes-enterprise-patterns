@@ -1,0 +1,46 @@
+# =============================================================================
+# FILE:    01-resource-governance.yaml
+# KIND:    LimitRange, ResourceQuota
+# PURPOSE: Teach namespace-level resource governance before workloads are added.
+# WHEN:    app_k8_deployment - apply immediately after the namespace.
+# ENTERPRISE EQUIVALENT: Platform teams enforce similar guardrails with
+#                        namespace templates, policy engines, and admission
+#                        controllers on EKS, GKE, AKS, and OpenShift.
+# =============================================================================
+
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: patient-record-default-container-limits
+  namespace: patient-record-system
+spec:
+  limits:
+    - type: Container
+      # ENTERPRISE EMPHASIS: Defaults protect the shared cluster if a team forgets
+      # to set requests or limits. Real enterprises often reject pods missing
+      # these fields through Kyverno, Gatekeeper, or built-in admission policy.
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: patient-record-namespace-quota
+  namespace: patient-record-system
+spec:
+  hard:
+    # ENTERPRISE EMPHASIS: A 16 GB laptop cannot behave like a cloud node group.
+    # This quota keeps the lab honest while teaching the same capacity contracts
+    # used by platform teams in shared enterprise clusters.
+    requests.cpu: "2"
+    requests.memory: "3Gi"
+    limits.cpu: "4"
+    limits.memory: "6Gi"
+    pods: "20"
+    services: "10"
+    persistentvolumeclaims: "4"
+

@@ -1,0 +1,47 @@
+# =============================================================================
+# FILE:    14-horizontal-pod-autoscaler.yaml
+# KIND:    HorizontalPodAutoscaler
+# PURPOSE: Scale the FastAPI backend based on CPU utilization.
+# WHEN:    app_k8_deployment - after backend Deployment exists.
+# ENTERPRISE EQUIVALENT: Production HPA often scales on CPU, memory, request
+#                        rate, queue depth, or custom Prometheus/KEDA metrics.
+# =============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: patient-record-api-hpa
+  namespace: patient-record-system
+spec:
+  # ENTERPRISE EMPHASIS: HPA changes replica count, not image version. Rollout
+  # and autoscaling are separate lifecycle concerns and should not be confused.
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: patient-record-api
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 30
+    scaleDown:
+      # ENTERPRISE EMPHASIS: Scale-down stabilization prevents replica flapping
+      # after a short traffic dip. Stability is often more valuable than instantly
+      # returning to the smallest possible replica count.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+

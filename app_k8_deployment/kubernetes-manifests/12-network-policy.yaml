@@ -1,0 +1,149 @@
+# =============================================================================
+# FILE:    12-network-policy.yaml
+# KIND:    NetworkPolicy
+# PURPOSE: Declare allowed traffic paths between frontend, backend, database,
+#          and cluster DNS.
+# WHEN:    app_k8_deployment - after workloads and Services are defined.
+# ENTERPRISE EQUIVALENT: Production clusters enforce these policies through
+#                        Calico, Cilium, cloud CNI policy, or service mesh
+#                        authorization. kind may accept the objects without
+#                        enforcing them unless a policy-capable CNI is installed.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-patient-record-system
+  namespace: patient-record-system
+spec:
+  # ENTERPRISE EMPHASIS: Start with no implicit trust. Every allowed path below
+  # documents an intentional architecture edge.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: patient-record-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-traffic-to-frontend
+  namespace: patient-record-system
+spec:
+  podSelector:
+    matchLabels:
+      app: patient-intake-ui
+      tier: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: patient-record-system
+spec:
+  podSelector:
+    matchLabels:
+      app: patient-record-api
+      tier: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: patient-intake-ui
+              tier: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-database
+  namespace: patient-record-system
+spec:
+  podSelector:
+    matchLabels:
+      app: patient-record-database
+      tier: database
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: patient-record-api
+              tier: backend
+      ports:
+        - protocol: TCP
+          port: 3306
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress-to-backend
+  namespace: patient-record-system
+spec:
+  podSelector:
+    matchLabels:
+      app: patient-intake-ui
+      tier: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: patient-record-api
+              tier: backend
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-egress-to-database
+  namespace: patient-record-system
+spec:
+  podSelector:
+    matchLabels:
+      app: patient-record-api
+      tier: backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: patient-record-database
+              tier: database
+      ports:
+        - protocol: TCP
+          port: 3306

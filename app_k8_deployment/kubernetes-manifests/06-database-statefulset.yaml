@@ -1,0 +1,151 @@
+# =============================================================================
+# FILE:    06-database-statefulset.yaml
+# KIND:    StatefulSet
+# PURPOSE: Run the MySQL-compatible database tier with stable identity and disk.
+# WHEN:    app_k8_deployment - after namespace, Secret, and database Services.
+# ENTERPRISE EQUIVALENT: Production teams usually prefer managed databases or
+#                        database operators. If they run databases on Kubernetes,
+#                        StatefulSet, PVCs, backups, anti-affinity, and upgrade
+#                        procedures become mandatory operational concerns.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: patient-record-database
+  namespace: patient-record-system
+  labels:
+    app: patient-record-database
+    tier: database
+    app.kubernetes.io/name: patient-record-database
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: patient-record-system
+spec:
+  serviceName: patient-record-database-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: patient-record-database
+      tier: database
+  template:
+    metadata:
+      labels:
+        app: patient-record-database
+        tier: database
+        app.kubernetes.io/name: patient-record-database
+    spec:
+      serviceAccountName: patient-record-database
+      automountServiceAccountToken: false
+      securityContext:
+        # ENTERPRISE EMPHASIS: The database needs writable storage, but it still
+        # gets the default runtime seccomp profile and a filesystem group for the
+        # mounted PVC. Full database hardening is image- and operator-specific.
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: database
+          # ENTERPRISE EMPHASIS: MariaDB is MySQL-compatible and currently has a
+          # small, actively maintained official image. If strict Oracle MySQL is
+          # required, replace this with a pinned mysql image and validate size,
+          # support policy, and upgrade behavior before production use.
+          image: mariadb:11.8.6
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            # LEARNER NOTE: This database image is different from the stateless
+            # FastAPI and nginx images. The official MariaDB entrypoint starts
+            # as root long enough to change ownership of /var/lib/mysql on the
+            # mounted PersistentVolumeClaim, then it hands off to the mysql user.
+            #
+            # We still block privilege escalation, but we do not drop every
+            # Linux capability here. Dropping all capabilities prevents the
+            # image from running `chown /var/lib/mysql`, which causes:
+            #   chown: changing ownership of '/var/lib/mysql/': Operation not permitted
+            #
+            # ENTERPRISE EQUIVALENT: Production teams usually avoid hand-tuning
+            # database container permissions by using a managed database service
+            # or a database operator that documents the exact securityContext it
+            # supports. App containers can often drop all capabilities; database
+            # images must be validated against their official startup behavior.
+            allowPrivilegeEscalation: false
+          ports:
+            - name: mysql
+              containerPort: 3306
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-root-password
+            - name: MARIADB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-database
+            - name: MARIADB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-user
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-password
+          volumeMounts:
+            - name: patient-record-database-data
+              mountPath: /var/lib/mysql
+          resources:
+            # ENTERPRISE EMPHASIS: Requests reserve capacity for the scheduler.
+            # Limits keep a runaway database from exhausting the learner laptop.
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD"
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD"
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD"
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata:
+        name: patient-record-database-data
+      spec:
+        # ENTERPRISE EMPHASIS: The PVC is the durability boundary. Deleting a pod
+        # should not delete patient records. In production, this must be paired
+        # with backups, encryption, restore drills, and upgrade runbooks.
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        # ENTERPRISE EMPHASIS: storageClassName is omitted so kind uses its
+        # default local-path StorageClass. In AWS you would usually choose an
+        # encrypted EBS gp3 class; in GKE a standard-rwo or premium-rwo class;
+        # in AKS a managed-csi class. Cloud portability belongs in overlays.

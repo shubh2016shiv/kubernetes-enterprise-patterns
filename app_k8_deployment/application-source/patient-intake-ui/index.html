@@ -1,0 +1,259 @@
+<!doctype html>
+<!--
+=============================================================================
+FILE:    index.html
+PURPOSE: Browser form for creating patient records through the FastAPI backend.
+USAGE:   Open http://localhost:30001 after deploying the Kubernetes manifests.
+WHEN:    app_k8_deployment - frontend tier of the 3-tier architecture.
+PREREQS: patient-intake-ui pod is Ready and the backend Service has endpoints.
+OUTPUT:  A patient intake request is POSTed to /api/patients.
+=============================================================================
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Patient Intake</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        --ink: #20242a;
+        --muted: #596271;
+        --line: #d7dde5;
+        --surface: #ffffff;
+        --page: #f5f7fa;
+        --primary: #0f766e;
+        --primary-dark: #115e59;
+        --error: #b42318;
+        --success: #087443;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+      }
+
+      main {
+        width: min(920px, calc(100vw - 32px));
+        margin: 32px auto;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 32px;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0 0 24px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      form {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        padding: 24px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px 12px;
+        font: inherit;
+        color: var(--ink);
+        background: #fff;
+      }
+
+      textarea {
+        min-height: 92px;
+        resize: vertical;
+      }
+
+      .wide {
+        grid-column: 1 / -1;
+      }
+
+      .actions {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        min-height: 44px;
+        border: 0;
+        border-radius: 6px;
+        padding: 0 18px;
+        font: inherit;
+        font-weight: 700;
+        color: #fff;
+        background: var(--primary);
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background: #8aa5a1;
+        cursor: wait;
+      }
+
+      button:hover:not(:disabled) {
+        background: var(--primary-dark);
+      }
+
+      #result {
+        margin-top: 18px;
+        padding: 16px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: #fff;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        line-height: 1.45;
+      }
+
+      .ok {
+        color: var(--success);
+      }
+
+      .error {
+        color: var(--error);
+      }
+
+      @media (max-width: 700px) {
+        form {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Patient Intake</h1>
+      <p>
+        This form submits patient details to the FastAPI backend through the UI
+        Service and nginx reverse proxy.
+      </p>
+
+      <form id="patient-form">
+        <!-- ENTERPRISE EMPHASIS: The browser submits to /api/patients, not to a
+             pod IP. The frontend container owns UI delivery, nginx owns the
+             internal route, and Kubernetes Service discovery owns backend reachability. -->
+        <label>
+          Full name
+          <input name="full_name" autocomplete="name" required minlength="2" />
+        </label>
+
+        <label>
+          Date of birth
+          <input name="date_of_birth" type="date" required />
+        </label>
+
+        <label>
+          Gender
+          <input name="gender" required minlength="2" />
+        </label>
+
+        <label>
+          Phone number
+          <input name="phone_number" autocomplete="tel" required minlength="7" />
+        </label>
+
+        <label>
+          Email address
+          <input name="email_address" type="email" autocomplete="email" />
+        </label>
+
+        <label>
+          Triage priority
+          <select name="triage_priority" required>
+            <option value="routine">Routine</option>
+            <option value="urgent">Urgent</option>
+            <option value="emergency">Emergency</option>
+          </select>
+        </label>
+
+        <label class="wide">
+          Primary symptom
+          <textarea name="primary_symptom" required minlength="3"></textarea>
+        </label>
+
+        <div class="actions">
+          <button type="submit">Submit Patient Record</button>
+          <span id="status-text"></span>
+        </div>
+      </form>
+
+      <pre id="result" aria-live="polite">No submission yet.</pre>
+    </main>
+
+    <script>
+      const form = document.querySelector("#patient-form");
+      const result = document.querySelector("#result");
+      const statusText = document.querySelector("#status-text");
+      const submitButton = form.querySelector("button");
+
+      function formToPayload(formElement) {
+        const formData = new FormData(formElement);
+        const payload = Object.fromEntries(formData.entries());
+        if (!payload.email_address) {
+          payload.email_address = null;
+        }
+        return payload;
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        submitButton.disabled = true;
+        statusText.textContent = "Submitting...";
+        statusText.className = "";
+
+        try {
+          const response = await fetch("/api/patients", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(formToPayload(form)),
+          });
+          const responseBody = await response.json();
+
+          if (!response.ok) {
+            throw new Error(JSON.stringify(responseBody, null, 2));
+          }
+
+          statusText.textContent = "Saved";
+          statusText.className = "ok";
+          result.textContent = JSON.stringify(responseBody, null, 2);
+        } catch (error) {
+          statusText.textContent = "Failed";
+          statusText.className = "error";
+          result.textContent = String(error.message || error);
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

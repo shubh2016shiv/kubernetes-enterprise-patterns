@@ -1,0 +1,53 @@
+# =============================================================================
+# FILE:    05-database-services.yaml
+# KIND:    Service
+# PURPOSE: Provide stable DNS for the database StatefulSet and API callers.
+# WHEN:    app_k8_deployment - apply before the database StatefulSet.
+# ENTERPRISE EQUIVALENT: Production databases are often managed services such as
+#                        Amazon RDS/Aurora, Cloud SQL, Azure Database for MySQL,
+#                        or operator-managed clusters. The application still
+#                        consumes a stable DNS endpoint.
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-record-database-headless
+  namespace: patient-record-system
+  labels:
+    app: patient-record-database
+    tier: database
+spec:
+  # ENTERPRISE EMPHASIS: A StatefulSet needs a governing Service for stable pod
+  # identities like patient-record-database-0.patient-record-database-headless.
+  # That identity matters for stateful systems where pod order and storage bind
+  # to long-lived data.
+  clusterIP: None
+  selector:
+    app: patient-record-database
+    tier: database
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-record-database-service
+  namespace: patient-record-system
+  labels:
+    app: patient-record-database
+    tier: database
+spec:
+  # ENTERPRISE EMPHASIS: ClusterIP keeps the database private inside the cluster.
+  # A database should not be exposed through NodePort or a public LoadBalancer.
+  type: ClusterIP
+  selector:
+    app: patient-record-database
+    tier: database
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+

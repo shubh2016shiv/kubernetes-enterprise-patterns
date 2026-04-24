@@ -1,0 +1,35 @@
+# =============================================================================
+# FILE:    09-backend-service.yaml
+# KIND:    Service
+# PURPOSE: Give the FastAPI backend a stable internal DNS name.
+# WHEN:    app_k8_deployment - after backend Deployment exists.
+# ENTERPRISE EQUIVALENT: Internal APIs use ClusterIP Services, often combined
+#                        with service mesh policy, mTLS, retries, and telemetry.
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-record-api-service
+  namespace: patient-record-system
+  labels:
+    app: patient-record-api
+    tier: backend
+spec:
+  # ENTERPRISE EMPHASIS: ClusterIP means only in-cluster callers such as nginx
+  # can reach the backend. The backend is not directly exposed to the laptop or
+  # internet; this is a basic enterprise blast-radius control.
+  type: ClusterIP
+  selector:
+    app: patient-record-api
+    tier: backend
+  ports:
+    - name: http
+      # LEARNER NOTE: Callers use patient-record-api-service:8080.
+      # Kubernetes then finds pods matching the selector above and forwards the
+      # request to their `targetPort`.
+      port: 8080
+      # `http` points to the named container port in 08-backend-deployment.yaml.
+      # This avoids repeating raw numbers everywhere and makes the connection
+      # between Service and Deployment easier to review.
+      targetPort: http

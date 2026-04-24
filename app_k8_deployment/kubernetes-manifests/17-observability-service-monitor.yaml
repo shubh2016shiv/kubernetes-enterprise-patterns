@@ -1,0 +1,29 @@
+# =============================================================================
+# FILE:    17-observability-service-monitor.yaml
+# KIND:    ServiceMonitor
+# PURPOSE: Show how Prometheus Operator would discover backend metrics.
+# WHEN:    Optional. Apply only after installing Prometheus Operator CRDs.
+# ENTERPRISE EQUIVALENT: Enterprise platforms usually standardize metrics,
+#                        logs, traces, dashboards, and alerting before teams
+#                        deploy production workloads.
+# =============================================================================
+
+# ENTERPRISE EMPHASIS: This manifest is intentionally optional because kind does
+# not include the Prometheus Operator by default. Without the ServiceMonitor CRD,
+# `kubectl apply` will fail. The learning value is seeing how an enterprise
+# metrics platform discovers scrape targets by labels and named ports.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: patient-record-api
+  namespace: patient-record-system
+spec:
+  selector:
+    matchLabels:
+      app: patient-record-api
+      tier: backend
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+

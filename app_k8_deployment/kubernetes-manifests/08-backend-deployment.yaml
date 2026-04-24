@@ -1,0 +1,185 @@
+# =============================================================================
+# FILE:    08-backend-deployment.yaml
+# KIND:    Deployment
+# PURPOSE: Run the stateless FastAPI backend that writes patient records to SQL.
+# WHEN:    app_k8_deployment - after database and runtime configuration exist.
+# ENTERPRISE EQUIVALENT: This is the common production pattern for stateless API
+#                        services on EKS, GKE, AKS, or OpenShift: Deployment,
+#                        Service, probes, resource controls, rollout strategy,
+#                        and externalized config.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-record-api
+  namespace: patient-record-system
+  labels:
+    app: patient-record-api
+    tier: backend
+    app.kubernetes.io/name: patient-record-api
+    app.kubernetes.io/component: backend-api
+    app.kubernetes.io/part-of: patient-record-system
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  # ENTERPRISE EMPHASIS: Two replicas are the minimum useful local pattern for
+  # a stateless API. Real production often starts at three or more to survive
+  # node drains and availability-zone failures.
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: patient-record-api
+      tier: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # ENTERPRISE EMPHASIS: `maxUnavailable: 0` prevents Kubernetes from taking
+      # down an old ready pod until a new pod is ready. This protects users during
+      # rolling updates at the cost of needing temporary extra capacity.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: patient-record-api
+        tier: backend
+        app.kubernetes.io/name: patient-record-api
+        app.kubernetes.io/version: "1.0.0"
+    spec:
+      serviceAccountName: patient-record-api
+      automountServiceAccountToken: false
+      securityContext:
+        # ENTERPRISE EMPHASIS: Stateless application pods should run as non-root
+        # with a runtime default seccomp profile. The image creates UID 10001.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: patient-record-api
+      affinity:
+        podAntiAffinity:
+          # ENTERPRISE EMPHASIS: Prefer separating API pods from the database
+          # node, but do not block the lab forever if the local cluster has too
+          # little capacity. Production may use required rules when capacity is
+          # guaranteed by node groups and autoscaling.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: patient-record-database
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: api
+          # ENTERPRISE EMPHASIS: This local tag is built on the learner machine
+          # and loaded into kind. Production CI/CD would push an immutable tag
+          # such as registry.example.com/healthcare/patient-record-api:git-sha.
+          image: patient-record-api:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            # ENTERPRISE EMPHASIS: Drop Linux capabilities and make the root
+            # filesystem read-only. If the app needs scratch space, mount an
+            # explicit emptyDir so write locations are reviewable.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              # LEARNER NOTE: This must match the port Uvicorn listens on in
+              # application-source/patient-record-api/Dockerfile:
+              #   CMD ... --host 0.0.0.0 --port 8080
+              #
+              # This is one of the main places where the backend and Kubernetes
+              # connect. FastAPI does not know about the Service directly.
+              # Kubernetes knows this pod has an HTTP listener on port 8080, and
+              # the Service routes traffic to this named port.
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                # LEARNER NOTE: This is another backend/Kubernetes connection.
+                # The FastAPI code reads environment variables through
+                # app/core/config.py. Kubernetes supplies non-secret values from
+                # this ConfigMap at pod startup.
+                name: patient-record-api-runtime-config
+          env:
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-database
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-user
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-password
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            # ENTERPRISE EMPHASIS: HPA CPU percentages are calculated against
+            # requests, not limits. Missing CPU requests make autoscaling weak or
+            # impossible to reason about.
+            requests:
+              cpu: "100m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            failureThreshold: 30
+            periodSeconds: 3
+          readinessProbe:
+            # ENTERPRISE EMPHASIS: Readiness checks the database dependency.
+            # During rollout, Kubernetes keeps this pod out of Service endpoints
+            # until it can actually serve patient-write traffic.
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            # ENTERPRISE EMPHASIS: Liveness only checks the app process. If the
+            # database is down, restarting every API pod usually makes recovery
+            # worse. Readiness, not liveness, should block traffic.
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: api-tmp
+              mountPath: /tmp
+      volumes:
+        - name: api-tmp
+          emptyDir: {}

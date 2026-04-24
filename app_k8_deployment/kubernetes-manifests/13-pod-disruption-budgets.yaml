@@ -1,0 +1,35 @@
+# =============================================================================
+# FILE:    13-pod-disruption-budgets.yaml
+# KIND:    PodDisruptionBudget
+# PURPOSE: Protect frontend and backend availability during voluntary disruption.
+# WHEN:    app_k8_deployment - after frontend and backend Deployments exist.
+# ENTERPRISE EQUIVALENT: PDBs are required for highly available workloads during
+#                        node drains, cluster upgrades, and autoscaler scale-down.
+# =============================================================================
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: patient-record-api-pdb
+  namespace: patient-record-system
+spec:
+  # ENTERPRISE EMPHASIS: Keep at least one backend pod available during voluntary
+  # maintenance. With only two local replicas, this allows one eviction at a time.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: patient-record-api
+      tier: backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: patient-intake-ui-pdb
+  namespace: patient-record-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: patient-intake-ui
+      tier: frontend
+

@@ -1,0 +1,31 @@
+# =============================================================================
+# FILE:    11-frontend-service.yaml
+# KIND:    Service
+# PURPOSE: Expose the patient intake UI to the learner's browser.
+# WHEN:    app_k8_deployment - after frontend Deployment exists.
+# ENTERPRISE EQUIVALENT: In EKS this would usually be an Ingress or Gateway
+#                        backed by AWS ALB, TLS, WAF, and DNS. GKE and AKS use
+#                        equivalent managed load balancer or gateway patterns.
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-intake-ui-service
+  namespace: patient-record-system
+  labels:
+    app: patient-intake-ui
+    tier: frontend
+spec:
+  # ENTERPRISE EMPHASIS: NodePort is a local kind shortcut so the Windows/WSL2
+  # learner can open http://localhost:30001. In enterprise, use Ingress/Gateway
+  # with TLS, DNS, WAF, and managed load balancer health checks.
+  type: NodePort
+  selector:
+    app: patient-intake-ui
+    tier: frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30001

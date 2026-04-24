@@ -1,0 +1,107 @@
+# =============================================================================
+# FILE:    16-database-backup-cronjob.yaml
+# KIND:    PersistentVolumeClaim, CronJob
+# PURPOSE: Teach that database backup is a separate data-protection lifecycle.
+# WHEN:    app_k8_deployment - apply after the database Service exists.
+# ENTERPRISE EQUIVALENT: Production backup targets should be durable object
+#                        storage, managed database snapshots, cross-region
+#                        replication, retention policy, encryption, and restore
+#                        drills. A local PVC is only a teaching target.
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: patient-record-database-backups
+  namespace: patient-record-system
+spec:
+  # ENTERPRISE EMPHASIS: This PVC is a local backup target so learners can see
+  # the mechanics. In enterprise, backups must leave the failure domain of the
+  # database node and the application namespace.
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-patient-record-database
+  namespace: patient-record-system
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: backup-patient-record-database
+            tier: database
+        spec:
+          serviceAccountName: patient-database-backup-runner
+          restartPolicy: OnFailure
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: mariadb:11.8.6
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: MARIADB_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: patient-record-database-credentials
+                      key: mysql-database
+                - name: MARIADB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: patient-record-database-credentials
+                      key: mysql-user
+                - name: MARIADB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: patient-record-database-credentials
+                      key: mysql-password
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  BACKUP_FILE="/backups/patient-record-db-$(date +%Y%m%d-%H%M%S).sql.gz"
+
+                  # ENTERPRISE EMPHASIS: A StatefulSet keeps the database pod
+                  # running; backup protects the data from human error, corruption,
+                  # ransomware, and storage loss. These are different controls.
+                  mariadb-dump \
+                    -h patient-record-database-service \
+                    -u"${MARIADB_USER}" \
+                    -p"${MARIADB_PASSWORD}" \
+                    "${MARIADB_DATABASE}" | gzip > "${BACKUP_FILE}"
+
+                  echo "Backup written to ${BACKUP_FILE}"
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "250m"
+                  memory: "256Mi"
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: patient-record-database-backups
+

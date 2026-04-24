@@ -1,0 +1,21 @@
+# =============================================================================
+# FILE:    00-namespace.yaml
+# KIND:    Namespace
+# PURPOSE: Create the isolation boundary for the patient record 3-tier system.
+# WHEN:    app_k8_deployment - apply before all application resources.
+# ENTERPRISE EQUIVALENT: In EKS, GKE, AKS, or OpenShift, namespaces usually map
+#                        to application environments, teams, or bounded domains
+#                        and are managed by GitOps plus platform guardrails.
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: patient-record-system
+  labels:
+    app.kubernetes.io/name: patient-record-system
+    app.kubernetes.io/part-of: healthcare-platform-learning
+    environment: local-kind
+  annotations:
+    description: "Namespace for the enterprise-style patient record 3-tier deployment"
+

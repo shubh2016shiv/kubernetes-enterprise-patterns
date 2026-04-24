@@ -1,0 +1,108 @@
+# =============================================================================
+# FILE:    07-database-schema-initialization-job.yaml
+# KIND:    Job
+# PURPOSE: Create the patient_records table before the backend receives traffic.
+# WHEN:    app_k8_deployment - run after the database StatefulSet is Ready and
+#          before the backend Deployment is created.
+# ENTERPRISE EQUIVALENT: Production teams usually run schema changes with
+#                        Flyway, Liquibase, Alembic, or controlled migration Jobs
+#                        in CI/CD before application rollout.
+# =============================================================================
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: patient-record-schema-initializer
+  namespace: patient-record-system
+  labels:
+    app: patient-record-schema-initializer
+    tier: database
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: patient-record-schema-initializer
+        tier: database
+    spec:
+      serviceAccountName: patient-schema-initializer
+      restartPolicy: Never
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: schema-init
+          image: mariadb:11.8.6
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: MARIADB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-database
+            - name: MARIADB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-user
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: patient-record-database-credentials
+                  key: mysql-password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              echo "Waiting for patient-record-database-service to accept SQL connections..."
+              for attempt in $(seq 1 30); do
+                if mariadb \
+                  -h patient-record-database-service \
+                  -u"${MARIADB_USER}" \
+                  -p"${MARIADB_PASSWORD}" \
+                  "${MARIADB_DATABASE}" \
+                  -e "SELECT 1;" >/dev/null 2>&1; then
+                  break
+                fi
+                echo "Database is not ready yet. Attempt ${attempt}/30."
+                sleep 5
+              done
+
+              # ENTERPRISE EMPHASIS: Schema creation is a release lifecycle step,
+              # not hidden inside request handling. If this Job fails, the backend
+              # readiness probe will also fail because the table does not exist.
+              mariadb \
+                -h patient-record-database-service \
+                -u"${MARIADB_USER}" \
+                -p"${MARIADB_PASSWORD}" \
+                "${MARIADB_DATABASE}" <<'SQL'
+              CREATE TABLE IF NOT EXISTS patient_records (
+                patient_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                full_name VARCHAR(160) NOT NULL,
+                date_of_birth DATE NOT NULL,
+                gender VARCHAR(32) NOT NULL,
+                phone_number VARCHAR(40) NOT NULL,
+                email_address VARCHAR(160) NULL,
+                primary_symptom VARCHAR(255) NOT NULL,
+                triage_priority VARCHAR(32) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+              SQL
+
+              echo "Schema initialization completed."
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+

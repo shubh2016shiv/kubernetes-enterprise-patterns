@@ -1,0 +1,41 @@
+# =============================================================================
+# FILE:    15-frontend-ingress.yaml
+# KIND:    Ingress
+# PURPOSE: Teach the enterprise traffic entry pattern in front of the UI Service.
+# WHEN:    app_k8_deployment - apply after the frontend Service exists.
+# ENTERPRISE EQUIVALENT: On EKS this could be AWS Load Balancer Controller ALB
+#                        Ingress; on GKE it could be GCLB; on AKS it could be
+#                        Application Gateway Ingress Controller or nginx ingress.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: patient-intake-ingress
+  namespace: patient-record-system
+  annotations:
+    # ENTERPRISE EMPHASIS: Ingress is where real traffic-entry concerns gather:
+    # DNS hostnames, TLS termination, WAF attachment, request routing, and
+    # load-balancer health checks. This object can exist in kind, but it only
+    # routes traffic when an ingress controller is installed.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - patient-intake.local.example
+      # ENTERPRISE EMPHASIS: This secret is intentionally not created in the
+      # local lab. In production, cert-manager, ACM, Google Managed Certificates,
+      # Azure Key Vault, or a platform PKI process would provision the TLS cert.
+      secretName: patient-intake-tls-certificate
+  rules:
+    - host: patient-intake.local.example
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: patient-intake-ui-service
+                port:
+                  number: 8080

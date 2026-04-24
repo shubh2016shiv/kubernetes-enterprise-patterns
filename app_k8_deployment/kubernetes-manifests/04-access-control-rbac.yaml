@@ -1,0 +1,95 @@
+# =============================================================================
+# FILE:    04-access-control-rbac.yaml
+# KIND:    ServiceAccount, Role, RoleBinding
+# PURPOSE: Give each tier an explicit Kubernetes identity and least-privilege
+#          API permissions.
+# WHEN:    app_k8_deployment - apply before any workload pods are created.
+# ENTERPRISE EQUIVALENT: Platform teams use namespace-scoped service accounts,
+#                        RBAC, workload identity, and policy engines so every
+#                        component has a clear "who can do what to what" boundary.
+# =============================================================================
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patient-record-api
+  namespace: patient-record-system
+  annotations:
+    # ENTERPRISE EMPHASIS: This is the backend workload identity. In production,
+    # this may map to a cloud IAM identity through IRSA on EKS, Workload Identity
+    # on GKE, or Managed Identity on AKS.
+    description: "Identity used by the FastAPI backend pods"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patient-intake-ui
+  namespace: patient-record-system
+  annotations:
+    description: "Identity used by the nginx frontend pods"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patient-record-database
+  namespace: patient-record-system
+  annotations:
+    description: "Identity used by the database StatefulSet pod"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patient-schema-initializer
+  namespace: patient-record-system
+  annotations:
+    description: "Identity used by the one-shot database schema Job"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patient-database-backup-runner
+  namespace: patient-record-system
+  annotations:
+    description: "Identity used by scheduled database backup Jobs"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: patient-record-api-runtime-reader
+  namespace: patient-record-system
+rules:
+  # ENTERPRISE EMPHASIS: This Role documents the backend's intended Kubernetes
+  # API access. The current code reads env vars injected by kubelet, so it does
+  # not actively call the API server. The permission is intentionally narrow to
+  # show that "backend pod" does not mean "can read every Secret."
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    resourceNames:
+      - patient-record-api-runtime-config
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - patient-record-database-credentials
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: patient-record-api-runtime-reader-binding
+  namespace: patient-record-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: patient-record-api-runtime-reader
+subjects:
+  - kind: ServiceAccount
+    name: patient-record-api
+    namespace: patient-record-system
+
