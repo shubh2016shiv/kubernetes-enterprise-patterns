@@ -1,69 +1,60 @@
 # =============================================================================
-# FILE: 08-resource-management/resource-quota.yaml
-# PURPOSE: Namespace-level resource caps — the enterprise tenant isolation pattern.
-#
-# WHY RESOURCE QUOTAS EXIST:
-#   Without quotas, a single team's runaway deployment can:
-#     - Consume all cluster CPU/memory → other teams' pods can't schedule
-#     - Create thousands of Secrets/ConfigMaps → overload etcd
-#     - Exhaust the cluster's LoadBalancer budget
-#   Quotas create hard boundaries per namespace, enforcing fair sharing.
-#
-# ENTERPRISE PATTERN — CLUSTER TENANCY:
-#   Platform team owns the cluster and sets quotas.
-#   Development teams own namespaces within those quotas.
-#   Teams request quota increases via a ticket/process.
-#   This is the "shared platform" model used at most large tech companies.
+# FILE:    resource-quota.yaml
+# KIND:    ResourceQuota
+# PURPOSE: Set a hard namespace budget for compute, storage claims, and object
+#          counts so one tenant cannot consume the whole learning cluster.
+# WHEN:    setup/08-resource-management - after RBAC has introduced access
+#          control for who may operate in the namespace.
+# ENTERPRISE EQUIVALENT: Platform teams set namespace quotas on EKS, GKE, and
+#                        AKS to control capacity, blast radius, and cloud cost.
 # =============================================================================
 
 apiVersion: v1
 kind: ResourceQuota
+
 metadata:
   name: applications-quota
   namespace: applications
   labels:
-    app.kubernetes.io/component: resource-management
+    app.kubernetes.io/name: applications
+    app.kubernetes.io/component: resource-quota
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Resource limits for the applications namespace"
-    # In enterprise: quotas are set by the platform team
-    # based on the team's capacity planning request
+    description: "Small tenant budget for the applications namespace in kind."
 
 spec:
   hard:
-    # ── COMPUTE RESOURCES ─────────────────────────────────────────────────────
-    # These REQUIRE that every Pod in this namespace defines requests AND limits.
-    # If a pod doesn't define them, it CANNOT be created in this namespace.
-    # This enforces the "no BestEffort pods" policy in enterprise.
+    # These values are intentionally conservative for a Windows 11 laptop with
+    # 16 GB RAM and Docker Desktop limited to roughly 8 GB. The goal is to teach
+    # the policy behavior without starving the local kind cluster.
+    requests.cpu: "2"
+    requests.memory: "2Gi"
+    limits.cpu: "4"
+    limits.memory: "4Gi"
 
-    # requests.cpu: Total CPU requests allowed across ALL pods in namespace
-    # If all pods request 100m CPU and quota is 2, max 20 pods can run.
-    requests.cpu: "2"           # 2 CPU cores total
-    requests.memory: "2Gi"     # 2 GiB total memory requests
-
-    # limits.cpu: Total CPU limits allowed
-    # limits must be >= requests (but K8s doesn't enforce this per pod here)
-    limits.cpu: "4"             # 4 CPU cores total limits
-    limits.memory: "4Gi"        # 4 GiB total memory limits
-
-    # ── OBJECT COUNT QUOTAS ───────────────────────────────────────────────────
-    # Limits the NUMBER of objects, not just their resource consumption.
-    # Protects etcd from being flooded with thousands of small objects.
-
-    # Maximum number of pods (running + pending + succeeded + failed)
+    # Object quotas protect kube-apiserver and etcd from accidental floods of
+    # small objects. This matters in enterprise just as much as CPU and memory.
     pods: "20"
-
-    # Service objects
     services: "10"
-    services.nodeports: "2"       # NodePort services are expensive (port allocation)
-    services.loadbalancers: "2"   # LB services cost money in cloud
-
-    # Config objects
+    services.nodeports: "2"
+    services.loadbalancers: "1"
     configmaps: "30"
     secrets: "30"
+    persistentvolumeclaims: "5"
 
-    # PersistentVolumeClaims (storage requests)
-    persistentvolumeclaims: "10"
-
-    # Deployment/ReplicaSet/StatefulSet objects
+    # Count quotas use resource-qualified names for non-core API resources.
+    # They are useful when teams create too many controllers or leave old
+    # ReplicaSets behind after frequent rollouts.
     count/deployments.apps: "10"
-    count/replicasets.apps: "30"  # Each deployment keeps ~3 old ReplicaSets
+    count/replicasets.apps: "30"
+
+# =============================================================================
+# WHAT THIS PROTECTS
+#
+# RBAC may allow a team to create Deployments, but ResourceQuota decides whether
+# the namespace has enough remaining budget for that Deployment. This separation
+# is central to enterprise platform engineering:
+#
+#   Authorization: "Are you allowed to deploy?"
+#   Quota:         "Does your deployment fit the tenant budget?"
+# =============================================================================

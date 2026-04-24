@@ -1,130 +1,71 @@
 # =============================================================================
-# FILE: 06-configmaps-secrets/app-configmap.yaml
-# PURPOSE: ConfigMap — externalized non-sensitive application configuration.
-#
-# THE 12-FACTOR APP — CONFIG PRINCIPLE:
-#   Configuration that varies between environments (dev, staging, prod)
-#   must be stored outside the application container.
-#   A ConfigMap is Kubernetes' mechanism for non-sensitive config.
-#
-# WHAT GOES IN A CONFIGMAP (never Secrets):
-#   ✓ Log levels (debug, info, warn, error)
-#   ✓ Feature flags (enable-new-ui: "true")
-#   ✓ Application ports, timeouts, retry counts
-#   ✓ External service URLs (non-sensitive)
-#   ✓ Entire configuration files (nginx.conf, application.properties)
-#
-# WHAT DOES NOT BELONG IN A CONFIGMAP:
-#   ✗ Passwords
-#   ✗ API keys / tokens
-#   ✗ TLS certificates / private keys
-#   ✗ Database connection strings with credentials
-#   → Use Secrets for all of the above
-#
-# THREE WAYS TO CONSUME A CONFIGMAP IN A POD:
-#   1. As environment variables (individual key-value pairs → env vars)
-#   2. As a volume (mount config file INTO the container filesystem)
-#   3. As envFrom (all keys become environment variables at once)
+# FILE:    app-configmap.yaml
+# KIND:    ConfigMap
+# PURPOSE: Store non-sensitive runtime settings for the config demo pod without
+#          baking those settings into the container image.
+# WHEN:    setup/06-configmaps-secrets - after Services have introduced stable
+#          DNS names for the gateway/backend application graph.
+# ENTERPRISE EQUIVALENT: The same ConfigMap pattern works on EKS, GKE, and AKS.
+#                        Enterprise teams usually manage it through GitOps and
+#                        keep one value set per environment.
 # =============================================================================
 
 apiVersion: v1
 kind: ConfigMap
+
 metadata:
-  name: nginx-app-config
+  name: inference-gateway-runtime-config
   namespace: applications
   labels:
-    app.kubernetes.io/name: nginx
-    app.kubernetes.io/component: configuration
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: runtime-configuration
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Application configuration for nginx demo service"
+    description: "Non-sensitive runtime config used to teach ConfigMap injection."
 
-# data: The actual configuration key-value pairs.
-# Keys: alphanumeric + hyphens/underscores/dots. NO SLASHES (that's for files).
-# Values: any string, including multi-line strings (using | for literal block)
 data:
-  # ── SIMPLE KEY-VALUE PAIRS (become environment variables) ─────────────────
-  # These will be injected as individual env vars in the pod spec
+  # APP_ENV is non-sensitive. It tells the same container image whether it is
+  # running as a local development, staging, or production instance.
   APP_ENV: "development"
+
+  # LOG_LEVEL is safe in a ConfigMap because it does not grant access to systems.
+  # In production, teams often raise or lower this during incident response.
   LOG_LEVEL: "info"
-  MAX_CONNECTIONS: "100"
-  REQUEST_TIMEOUT_MS: "5000"
-  FEATURE_FLAG_NEW_UI: "false"
-  METRICS_PORT: "9090"
 
-  # ── ENTIRE FILE AS A CONFIGMAP VALUE ──────────────────────────────────────
-  # ConfigMap values can be entire file contents.
-  # The key becomes the filename when mounted as a volume.
-  # This is how you inject config files like nginx.conf, app.yaml, etc.
-  #
-  # ENTERPRISE PATTERN: This replaces "baking config into the container image"
-  # You can change this ConfigMap and pods restart with new config —
-  # without rebuilding the Docker image.
-  nginx.conf: |
-    # This is an actual nginx configuration file stored in a ConfigMap.
-    # When mounted as a volume, it replaces /etc/nginx/nginx.conf in the container.
+  # LOCAL: The gateway should call the backend through the Service created in
+  # setup/05-services, not through a pod IP from setup/04-deployments.
+  # ENTERPRISE: This would often be an internal DNS name, service mesh hostname,
+  # or platform service discovery name on EKS, GKE, or AKS.
+  RISK_PROFILE_API_BASE_URL: "http://risk-profile-api-clusterip/profile/rules"
 
-    user  nginx;
-    worker_processes  auto;  # auto = use all available CPU cores
+  # Feature flags are configuration because they change behavior without
+  # changing code. They are safe here only when they do not reveal secrets.
+  FEATURE_FLAG_VERBOSE_DEPENDENCY_CHECK: "true"
 
-    # error_log level is controlled by our LOG_LEVEL configmap value
-    # (in practice, you'd use a script to template this from env vars)
-    error_log  /var/log/nginx/error.log notice;
-    pid        /var/run/nginx.pid;
+  # Timeouts and retry counts belong outside the image because each environment
+  # has different latency and reliability characteristics.
+  BACKEND_TIMEOUT_MS: "3000"
+  BACKEND_MAX_RETRIES: "2"
 
-    events {
-        # worker_connections: max simultaneous connections per worker
-        # Total max connections = worker_processes * worker_connections
-        worker_connections  1024;
-    }
-
-    http {
-        include       /etc/nginx/mime.types;
-        default_type  application/octet-stream;
-
-        # log_format: structured JSON logging (enterprise standard)
-        # JSON logs are parsed by log aggregators (ELK, Loki, CloudWatch)
-        log_format json_combined escape=json '{'
-            '"timestamp":"$time_iso8601",'
-            '"method":"$request_method",'
-            '"uri":"$request_uri",'
-            '"status":$status,'
-            '"bytes_sent":$bytes_sent,'
-            '"request_time":$request_time,'
-            '"upstream_addr":"$upstream_addr",'
-            '"x_forwarded_for":"$http_x_forwarded_for"'
-        '}';
-
-        access_log  /var/log/nginx/access.log  json_combined;
-
-        sendfile        on;
-        keepalive_timeout  65;
-
-        server {
-            listen       80;
-            server_name  _;
-
-            # Health check endpoint (used by readiness probe and load balancers)
-            location /health {
-                access_log off;      # Don't log health checks (noise reduction)
-                return 200 '{"status":"healthy"}';
-                add_header Content-Type application/json;
-            }
-
-            # Main application
-            location / {
-                root   /usr/share/nginx/html;
-                index  index.html index.htm;
-            }
-        }
-    }
-
-  # Another configuration file example: app-specific settings
-  app-settings.properties: |
-    # Application-level settings
-    # This file would be read by a Java/Node/Python app during startup
-    server.port=8080
-    server.timeout=30000
-    cache.enabled=true
-    cache.ttl.seconds=300
-    database.pool.size=10
-    database.pool.min-idle=5
+  # ConfigMaps can also carry whole files. The key becomes the filename when it
+  # is mounted through a volume in the pod spec.
+  gateway-runtime.yaml: |
+    # Runtime settings for the teaching gateway.
+    #
+    # Why this is a file:
+    #   Larger applications often load structured config from YAML, TOML, JSON,
+    #   or properties files instead of dozens of environment variables.
+    #
+    # Enterprise equivalent:
+    #   A platform team may keep this file in Git, sync it with Argo CD or Flux,
+    #   and promote different values through dev, staging, and prod.
+    app:
+      environment: development
+      logLevel: info
+    backend:
+      baseUrl: http://risk-profile-api-clusterip/profile/rules
+      timeoutMs: 3000
+      maxRetries: 2
+    observability:
+      metricsEnabled: true
+      metricsPort: 9090

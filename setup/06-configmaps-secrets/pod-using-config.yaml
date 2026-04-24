@@ -1,25 +1,34 @@
 # =============================================================================
-# FILE: 06-configmaps-secrets/pod-using-config.yaml
-# PURPOSE: Shows ALL methods of consuming ConfigMaps and Secrets in a Pod.
-#          This is the "connector" file — showing how config flows to your app.
-#
-# THE FOUR CONSUMPTION PATTERNS (all shown in this file):
-#   1. ConfigMap → individual env vars (valueFrom.configMapKeyRef)
-#   2. Secret    → individual env vars (valueFrom.secretKeyRef)
-#   3. ConfigMap → ALL keys as env vars (envFrom.configMapRef)
-#   4. ConfigMap → Volume mount (files inside container filesystem)
+# FILE:    pod-using-config.yaml
+# KIND:    Pod
+# PURPOSE: Demonstrate how a workload consumes ConfigMaps and Secrets as
+#          environment variables and mounted files.
+# WHEN:    setup/06-configmaps-secrets - after applying app-configmap.yaml and
+#          app-secret.yaml.
+# ENTERPRISE EQUIVALENT: Production workloads usually use Deployments instead
+#                        of standalone Pods, but the env and volume syntax shown
+#                        here is exactly the same inside a Deployment pod template
+#                        on EKS, GKE, AKS, or bare-metal Kubernetes.
 # =============================================================================
 
 apiVersion: v1
 kind: Pod
+
 metadata:
-  name: nginx-full-config-demo
+  name: config-demo
   namespace: applications
   labels:
-    app: nginx-config-demo
-    tier: frontend
+    app: config-demo
+    tier: learning
+    app.kubernetes.io/name: config-demo
+    app.kubernetes.io/component: configuration-consumer
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
+  annotations:
+    description: "Teaching pod that consumes ConfigMaps and Secrets."
 
 spec:
+  restartPolicy: Always
+
   containers:
     - name: nginx
       image: nginx:1.25.4
@@ -31,130 +40,104 @@ spec:
 
       resources:
         requests:
-          cpu: "100m"
-          memory: "128Mi"
+          # This is intentionally small for a 16 GB Windows 11 + Docker Desktop
+          # + kind learning machine.
+          cpu: "50m"
+          memory: "64Mi"
         limits:
-          cpu: "250m"
-          memory: "256Mi"
+          cpu: "200m"
+          memory: "128Mi"
 
-      # ── METHOD 1: Individual keys from ConfigMap → env vars ──────────────
-      # Use when: you want to pull specific keys from a ConfigMap
-      # Each key becomes an env var with the name you specify
       env:
-        # From ConfigMap: specific key reference
-        - name: APP_ENVIRONMENT        # Name of the env var INSIDE the container
+        # ConfigMap values are appropriate for non-sensitive runtime settings.
+        - name: APP_ENV
           valueFrom:
             configMapKeyRef:
-              name: nginx-app-config  # ConfigMap name
-              key: APP_ENV            # Key from the ConfigMap's data section
-              # optional: false (default) → pod FAILS if key doesn't exist
-              # optional: true            → pod starts even if key missing (gets empty string)
+              name: inference-gateway-runtime-config
+              key: APP_ENV
               optional: false
 
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:
-              name: nginx-app-config
+              name: inference-gateway-runtime-config
               key: LOG_LEVEL
+              optional: false
 
-        # From Secret: specific key reference
-        # Secrets are referenced identically to ConfigMaps but use secretKeyRef
-        - name: DB_PASSWORD
+        # This value comes from the Service module. The app calls stable Service
+        # DNS, not pod IPs that disappear during normal Deployment operations.
+        - name: RISK_PROFILE_API_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: inference-gateway-runtime-config
+              key: RISK_PROFILE_API_BASE_URL
+              optional: false
+
+        - name: BACKEND_TIMEOUT_MS
+          valueFrom:
+            configMapKeyRef:
+              name: inference-gateway-runtime-config
+              key: BACKEND_TIMEOUT_MS
+              optional: false
+
+        # Secret values use secretKeyRef. Kubernetes decodes the stored Secret
+        # data before exposing it to the container.
+        - name: API_TOKEN
           valueFrom:
             secretKeyRef:
-              name: nginx-app-secrets  # Secret name
-              key: DB_PASSWORD         # Key from the Secret's data section
-              # K8s decodes from base64 automatically — your app sees plain text
+              name: inference-gateway-runtime-secrets
+              key: API_TOKEN
+              optional: false
 
         - name: DB_USERNAME
           valueFrom:
             secretKeyRef:
-              name: nginx-app-secrets
+              name: inference-gateway-runtime-secrets
               key: DB_USERNAME
+              optional: false
 
-        - name: REDIS_URL
-          valueFrom:
-            secretKeyRef:
-              name: nginx-app-secrets
-              key: REDIS_URL
-
-      # ── METHOD 2: ALL keys from ConfigMap → env vars (envFrom) ──────────
-      # Use when: the ConfigMap is purpose-built for this app
-      #           and you want all keys without listing each one.
-      # RISK: If ConfigMap adds a new key, it automatically becomes an env var.
-      #       Could cause conflicts with existing env var names.
-      # ENTERPRISE PREFERENCE: Explicit (method 1) > envFrom — easier to audit
-      envFrom:
-        - configMapRef:
-            name: nginx-app-config
-            optional: false   # Pod fails if ConfigMap doesn't exist
-          # prefix: "NGINX_"  # Optional: add prefix to all key names
-          #                   # Useful to avoid naming conflicts
-
-      # ── METHOD 3: ConfigMap → Volume mount (files in filesystem) ─────────
-      # Use when:
-      #   - Config is a file (nginx.conf, application.properties)
-      #   - Config needs live-update WITHOUT pod restart (volume updates auto)
-      #   - Config is too large for env vars (K8s limits env var total size)
-      #
-      # HOW IT WORKS:
-      #   Each key in the ConfigMap becomes a FILE in the mounted directory.
-      #   The key is the filename, the value is the file content.
-      #   So "nginx.conf" key → /etc/nginx/nginx.conf file inside the container.
       volumeMounts:
-        # Mount the custom nginx.conf file
-        - name: nginx-config-volume      # Refers to volumes section below
-          mountPath: /etc/nginx/conf.d   # Directory inside container
-          # readOnly: true is recommended for config files
-          # Prevents the app from accidentally modifying its own config
+        # Mount structured non-sensitive config as files.
+        - name: gateway-config-volume
+          mountPath: /etc/gateway/config
           readOnly: true
 
-        # Mount secrets as files (recommended over env vars for secrets)
-        # Files update live when Secret is updated (within ~30-60s)
-        # Env vars do NOT update until pod restarts
-        - name: secrets-volume
-          mountPath: /etc/app/secrets    # App reads files from this directory
-          readOnly: true                 # ALWAYS readonly for secret volumes
+        # Mount only selected Secret keys as files. Mounting fewer keys reduces
+        # accidental exposure inside the container filesystem.
+        - name: gateway-secret-volume
+          mountPath: /etc/gateway/secrets
+          readOnly: true
 
-  # ── VOLUME DEFINITIONS ─────────────────────────────────────────────────────
   volumes:
-    # Volume backed by the ConfigMap
-    - name: nginx-config-volume
+    - name: gateway-config-volume
       configMap:
-        name: nginx-app-config          # Source ConfigMap
-        # items: Map specific keys to specific filenames
-        # Without items: ALL keys become files in the mountPath
-        # With items: only listed keys are mounted, with custom filenames
+        name: inference-gateway-runtime-config
         items:
-          - key: nginx.conf             # ConfigMap key
-            path: default.conf         # Filename in the container filesystem
-                                       # Result: /etc/nginx/conf.d/default.conf
+          - key: gateway-runtime.yaml
+            path: gateway-runtime.yaml
+            mode: 0444
 
-          - key: app-settings.properties
-            path: app-settings.properties
-            # mode: Unix file permissions (0644 = rw-r--r--)
-            # Default is 0644, which is appropriate for config files
-            mode: 0644
-
-    # Volume backed by the Secret
-    # Each Secret key becomes a file containing the DECODED value
-    - name: secrets-volume
+    - name: gateway-secret-volume
       secret:
-        secretName: nginx-app-secrets
-        # items: Mount only specific keys (security: don't mount all secrets)
+        secretName: inference-gateway-runtime-secrets
         items:
           - key: DB_USERNAME
-            path: db-username           # /etc/app/secrets/db-username
+            path: db-username
+            mode: 0444
           - key: DB_PASSWORD
-            path: db-password           # /etc/app/secrets/db-password
-            mode: 0400                 # 0400 = r-------- (only owner can read)
-                                       # Extra protection for password files
+            path: db-password
+            mode: 0400
           - key: DB_CONNECTION_STRING
-            path: db-connection         # /etc/app/secrets/db-connection
+            path: db-connection-string
+            mode: 0400
 
-# ─── HOW TO VERIFY AFTER APPLYING ────────────────────────────────────────────
-# kubectl apply -f 06-configmaps-secrets/pod-using-config.yaml
-# kubectl exec nginx-full-config-demo -n applications -- env | grep -E "APP_|LOG_|DB_|REDIS_"
-# kubectl exec nginx-full-config-demo -n applications -- ls /etc/app/secrets/
-# kubectl exec nginx-full-config-demo -n applications -- cat /etc/nginx/conf.d/default.conf
-# kubectl exec nginx-full-config-demo -n applications -- cat /etc/app/secrets/db-password
+# =============================================================================
+# WHAT TO NOTICE
+#
+# 1. If the ConfigMap or Secret is missing, this pod will not start. That is a
+#    useful failure because the application should not run with partial config.
+# 2. Environment variables are captured when the container starts. Updating the
+#    ConfigMap or Secret later does not rewrite existing env vars.
+# 3. Mounted files can update after the object changes, but the application must
+#    reread the file. Kubernetes updates the file; it does not restart the app.
+# =============================================================================

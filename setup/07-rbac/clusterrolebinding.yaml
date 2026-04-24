@@ -1,0 +1,39 @@
+# =============================================================================
+# FILE:    clusterrolebinding.yaml
+# KIND:    ClusterRoleBinding
+# PURPOSE: Grant the monitoring ServiceAccount the read-only ClusterRole needed
+#          for cross-namespace service discovery.
+# WHEN:    setup/07-rbac - after service-account.yaml and clusterrole.yaml.
+# ENTERPRISE EQUIVALENT: ClusterRoleBindings are high-impact access grants and
+#                        are usually reviewed by platform or security teams.
+# =============================================================================
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+
+metadata:
+  name: prometheus-scraper-cluster-read
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: cluster-rbac-binding
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
+  annotations:
+    description: "Binds read-only cluster discovery permissions to the monitoring identity."
+
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-read-cluster-state
+
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-scraper-sa
+    namespace: monitoring
+
+# =============================================================================
+# IMPORTANT BOUNDARY
+#
+# This grants read-only visibility across the cluster to one monitoring identity.
+# Do not use ClusterRoleBinding for ordinary application workloads unless there
+# is a clear platform reason and a security review.
+# =============================================================================

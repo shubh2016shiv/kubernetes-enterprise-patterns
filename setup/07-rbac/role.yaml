@@ -1,114 +1,60 @@
 # =============================================================================
-# FILE: 07-rbac/role.yaml
-# PURPOSE: Role definitions — namespace-scoped Kubernetes RBAC permissions.
-#
-# RBAC OVERVIEW:
-#   RBAC = Role-Based Access Control. It answers: "What can WHO do to WHAT?"
-#
-#   4 RBAC Objects:
-#     Role:               Defines permissions WITHIN a namespace
-#     ClusterRole:        Defines permissions CLUSTER-WIDE (or reusable across namespaces)
-#     RoleBinding:        Binds a Role to a subject (user/group/ServiceAccount) in a namespace
-#     ClusterRoleBinding: Binds a ClusterRole to a subject cluster-wide
-#
-#   Subjects (who receives permissions):
-#     - User:            Human user authenticated via IdP (OIDC/LDAP)
-#     - Group:           Group of users (e.g., "developers", "sre-team")
-#     - ServiceAccount:  Pod identity (programmatic access)
-#
-#   Verbs (what actions):
-#     get        → read one specific resource (kubectl get pod <name>)
-#     list       → list all resources of a type (kubectl get pods)
-#     watch      → stream updates (used by controllers and operators)
-#     create     → create new resources
-#     update     → replace an existing resource
-#     patch      → partially modify an existing resource
-#     delete     → delete a resource
-#     deletecollection → delete all resources matching a selector
-#
-#   Resources: pods, services, deployments, configmaps, secrets, nodes, etc.
-#
-# RULE: Permissions are ADDITIVE — there is no "deny" in Kubernetes RBAC.
-#   If a subject has two roles, they get the UNION of both roles' permissions.
-#   You cannot grant permission in one role and remove it in another.
+# FILE:    role.yaml
+# KIND:    Role
+# PURPOSE: Grant a workload identity read-only visibility into non-sensitive
+#          application resources inside one namespace.
+# WHEN:    setup/07-rbac - after creating inference-gateway-observer-sa.
+# ENTERPRISE EQUIVALENT: Namespace-scoped Roles are the default pattern for app
+#                        teams on EKS, GKE, and AKS because they limit blast
+#                        radius to one namespace.
 # =============================================================================
 
-# ─── ROLE: nginx-read-role ────────────────────────────────────────────────────
-# This role allows reading pod status and logs in the applications namespace.
-# A common role for: health check dashboards, log viewers, status monitors.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
+
 metadata:
-  name: nginx-pod-reader
+  name: gateway-observer
   namespace: applications
   labels:
-    app.kubernetes.io/name: nginx
-    app.kubernetes.io/component: rbac
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: rbac-role
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Read-only access to pods and logs in applications namespace"
+    description: "Read-only visibility for pods, Services, endpoints, and ConfigMaps."
 
 rules:
-  # ── RULE 1: Pod Operations ─────────────────────────────────────────────────
-  - # apiGroups: which API group the resources belong to
-    # "" (empty string) = core API group (pods, services, configmaps, nodes)
-    # "apps" = Deployment, ReplicaSet, StatefulSet, DaemonSet
-    # "batch" = Job, CronJob
-    # Use "*" to match all groups (usually too broad — avoid in enterprise)
-    apiGroups: [""]
-    # resources: which Kubernetes resources these rules apply to
-    # "pods/log" is a SUB-RESOURCE — logs are accessed via /pods/{name}/log endpoint
-    # "pods/exec" is the exec sub-resource (kubectl exec uses this)
-    # "pods/portforward" is for kubectl port-forward
-    resources: ["pods", "pods/log", "pods/status"]
-    # verbs: what operations are allowed
+  - apiGroups: [""]
+    # pods/log is a subresource. It is separate from pods because reading logs
+    # can expose application data, stack traces, and sometimes accidental secrets.
+    resources: ["pods", "pods/log"]
+    # get reads one named object. list reads many objects. watch streams changes.
+    # This is enough for dashboards and troubleshooting, but not for mutation.
     verbs: ["get", "list", "watch"]
 
-  # ── RULE 2: Service inspection ─────────────────────────────────────────────
   - apiGroups: [""]
+    # Services and endpoints are safe for this observer because they reveal
+    # routing state, not credentials.
     resources: ["services", "endpoints"]
     verbs: ["get", "list", "watch"]
 
-  # ── RULE 3: ConfigMap reading ──────────────────────────────────────────────
-  # Read-only access to ConfigMaps (NOT Secrets — those need separate permission)
-  # ENTERPRISE: Never grant "secrets" in a role unless absolutely necessary.
-  # Treat Secrets access as a privileged operation requiring justification.
   - apiGroups: [""]
+    # ConfigMaps from setup/06-configmaps-secrets contain non-sensitive runtime
+    # settings, so this observer can inspect them.
     resources: ["configmaps"]
     verbs: ["get", "list"]
 
----
-# ─── ROLE: application-deployer-role ─────────────────────────────────────────
-# Role for a CI/CD service account that needs to update deployments.
-# This is what your GitHub Actions / GitLab CI runner's ServiceAccount would have.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: application-deployer
-  namespace: applications
-  labels:
-    app.kubernetes.io/component: rbac
-  annotations:
-    description: "CI/CD pipeline permissions: deploy and rollback applications"
-
-rules:
-  # Can fully manage Deployments (create, update, delete, scale)
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-
-  # Can manage ConfigMaps (for deploying new configuration)
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "create", "update", "patch"]
-
-  # Can read pod status (to wait for rollout to complete)
-  - apiGroups: [""]
-    resources: ["pods", "pods/log"]
-    verbs: ["get", "list", "watch"]
-
-  # Can manage Services (for updating port configurations)
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list", "create", "update", "patch"]
-
-  # CANNOT: access Secrets, create/delete namespaces, access other namespaces
+# =============================================================================
+# WHY SECRETS ARE MISSING
+#
+# Kubernetes RBAC has no deny rule. Permissions are additive. The way to deny
+# Secret access is to avoid granting `secrets` in any Role or ClusterRole bound
+# to this identity.
+#
+# This Role intentionally does NOT include:
+#   resources: ["secrets"]
+#
+# That means:
+#   kubectl auth can-i get secrets --as=system:serviceaccount:applications:inference-gateway-observer-sa -n applications
+# should return:
+#   no
+# =============================================================================

@@ -1,51 +1,72 @@
 # =============================================================================
-# FILE: 08-resource-management/deployment-with-limits.yaml
-# PURPOSE: Example workload that fits inside the namespace quota and declares
-#          explicit requests/limits.
-#
-# WHY THIS FILE EXISTS:
-#   Resource policies are easier to understand when paired with a workload that
-#   satisfies them. This Deployment gives the learner something concrete to
-#   inspect with `kubectl describe pod` and `kubectl get pod -o yaml`.
+# FILE:    deployment-with-limits.yaml
+# KIND:    Deployment
+# PURPOSE: Deploy a compliant workload that declares explicit CPU and memory
+#          requests/limits and fits inside the namespace resource policies.
+# WHEN:    setup/08-resource-management - after applying ResourceQuota and
+#          LimitRange.
+# ENTERPRISE EQUIVALENT: Production Deployments on EKS, GKE, and AKS should set
+#                        resource requests and limits based on load testing,
+#                        monitoring data, and SLO requirements.
 # =============================================================================
 
 apiVersion: apps/v1
 kind: Deployment
+
 metadata:
-  name: nginx-resource-demo
+  name: resource-managed-gateway
   namespace: applications
   labels:
-    app: nginx-resource-demo
-    app.kubernetes.io/component: resource-management
+    app: resource-managed-gateway
+    tier: frontend
+    app.kubernetes.io/name: resource-managed-gateway
+    app.kubernetes.io/component: resource-management-demo
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Deployment used to inspect requests, limits, and QoS behavior"
+    description: "Compliant Deployment used to inspect requests, limits, and quota usage."
 
 spec:
-  replicas: 1
+  replicas: 2
+
   selector:
     matchLabels:
-      app: nginx-resource-demo
+      app: resource-managed-gateway
 
   template:
     metadata:
       labels:
-        app: nginx-resource-demo
+        app: resource-managed-gateway
+        tier: frontend
 
     spec:
       containers:
-        - name: nginx
+        - name: gateway
           image: nginx:1.25.4
           imagePullPolicy: IfNotPresent
+
           ports:
-            - containerPort: 80
+            - name: http
+              containerPort: 80
 
           resources:
-            # requests == limits on both CPU and memory gives this container
-            # the Guaranteed QoS class, which is the strongest eviction
-            # protection Kubernetes can offer during node pressure.
             requests:
-              cpu: "200m"
+              # Request 100m CPU per replica. With 2 replicas, this Deployment
+              # consumes 200m of the namespace's 2 CPU request budget.
+              cpu: "100m"
+              # Request 128Mi per replica. With 2 replicas, this consumes 256Mi
+              # of the namespace's 2Gi memory request budget.
               memory: "128Mi"
             limits:
-              cpu: "200m"
-              memory: "128Mi"
+              # CPU limits cap burst behavior. Exceeding CPU limit throttles the
+              # container instead of killing it.
+              cpu: "250m"
+              # Memory limits are strict. Exceeding this can OOMKill the container.
+              memory: "256Mi"
+
+# =============================================================================
+# WHAT THIS WORKLOAD TEACHES
+#
+# This Deployment is intentionally small so it can run alongside earlier modules
+# on the learner's 16 GB laptop. The point is not to benchmark nginx. The point
+# is to see how requests and limits show up in quota usage and pod descriptions.
+# =============================================================================

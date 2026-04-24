@@ -1,48 +1,43 @@
 # =============================================================================
-# FILE: 07-rbac/clusterrole.yaml
-# PURPOSE: Demonstrate cluster-scoped RBAC for cross-namespace platform tools.
-#
-# WHY THIS EXISTS:
-#   Some components do not live entirely inside one namespace. Prometheus,
-#   admission controllers, GitOps agents, and operators often need to read or
-#   watch objects across the cluster. That is when ClusterRole becomes the
-#   correct abstraction instead of Role.
+# FILE:    clusterrole.yaml
+# KIND:    ClusterRole
+# PURPOSE: Demonstrate read-only cluster-scoped permissions for platform tools
+#          that must discover resources across namespaces.
+# WHEN:    setup/07-rbac - after namespace-scoped Role concepts are understood.
+# ENTERPRISE EQUIVALENT: Prometheus, Datadog, Falco, GitOps controllers, and
+#                        policy engines on EKS, GKE, and AKS often use carefully
+#                        scoped ClusterRoles.
 # =============================================================================
 
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
+
 metadata:
   name: prometheus-read-cluster-state
   labels:
-    app.kubernetes.io/component: rbac
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: cluster-rbac-role
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Read-only cluster-scoped permissions for Prometheus-style service discovery"
+    description: "Read-only cluster-scoped permissions for monitoring discovery."
 
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "services", "endpoints", "namespaces"]
+    # These resources are in the core API group. Nodes and namespaces are
+    # cluster-scoped, so a namespace Role cannot grant access to them.
+    resources: ["nodes", "namespaces", "pods", "services", "endpoints"]
     verbs: ["get", "list", "watch"]
 
   - apiGroups: ["apps"]
+    # Monitoring needs to discover common workload controllers so dashboards can
+    # connect pod health back to Deployments, StatefulSets, and DaemonSets.
     resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
     verbs: ["get", "list", "watch"]
 
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: prometheus-scraper-cluster-read
-  labels:
-    app.kubernetes.io/component: rbac
-  annotations:
-    description: "Binds cluster-wide read permissions to the monitoring namespace scraper service account"
-
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: prometheus-read-cluster-state
-
-subjects:
-  - kind: ServiceAccount
-    name: prometheus-scraper-sa
-    namespace: monitoring
+# =============================================================================
+# WHY THIS IS READ-ONLY
+#
+# Platform tools often need broad visibility, but broad visibility should not
+# become broad mutation. This ClusterRole intentionally has no create, update,
+# patch, or delete verbs.
+# =============================================================================

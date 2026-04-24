@@ -1,46 +1,75 @@
 # =============================================================================
-# FILE: 08-resource-management/limit-range.yaml
-# PURPOSE: Set default requests/limits plus min/max boundaries per container.
-#
-# WHY THIS IS A SEPARATE FILE:
-#   ResourceQuota is the namespace ceiling. LimitRange is the per-workload
-#   default and boundary policy. Keeping them separate mirrors how platform
-#   teams reason about tenant-level policy vs workload-level defaults.
+# FILE:    limit-range.yaml
+# KIND:    LimitRange
+# PURPOSE: Set default resource requests/limits and per-container boundaries for
+#          workloads in the applications namespace.
+# WHEN:    setup/08-resource-management - after ResourceQuota defines the
+#          namespace-level budget.
+# ENTERPRISE EQUIVALENT: Platform teams use LimitRanges, admission policies, or
+#                        namespace templates to prevent BestEffort pods and
+#                        reject obviously oversized containers.
 # =============================================================================
 
 apiVersion: v1
 kind: LimitRange
+
 metadata:
   name: applications-limit-range
   namespace: applications
   labels:
-    app.kubernetes.io/component: resource-management
+    app.kubernetes.io/name: applications
+    app.kubernetes.io/component: limit-range
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Default and min/max resource bounds for pods in applications namespace"
+    description: "Default and min/max resource bounds for application containers."
 
 spec:
   limits:
     - type: Container
-      default:
-        cpu: "500m"
-        memory: "256Mi"
+      # defaultRequest is injected when a container omits requests. Requests are
+      # what the scheduler uses to decide whether a node has enough capacity.
       defaultRequest:
         cpu: "100m"
         memory: "128Mi"
+
+      # default is injected as the container limit when a container omits limits.
+      # CPU over the limit is throttled; memory over the limit can be killed.
+      default:
+        cpu: "500m"
+        memory: "256Mi"
+
+      # max prevents a single container from consuming too much of the namespace
+      # quota or exceeding what this small kind cluster should handle.
       max:
-        cpu: "2"
-        memory: "1Gi"
+        cpu: "1"
+        memory: "512Mi"
+
+      # min prevents unrealistic requests that make the scheduler overpack nodes.
       min:
         cpu: "10m"
         memory: "32Mi"
 
     - type: Pod
+      # Pod max catches multi-container pods where each container is legal but
+      # the combined pod would still be too large for the namespace pattern.
       max:
-        cpu: "4"
-        memory: "2Gi"
+        cpu: "2"
+        memory: "1Gi"
 
     - type: PersistentVolumeClaim
-      max:
-        storage: "10Gi"
+      # Storage quotas matter because PVCs can consume real disk or cloud volume
+      # capacity. This lab keeps PVCs small for Docker Desktop.
       min:
         storage: "1Gi"
+      max:
+        storage: "10Gi"
+
+# =============================================================================
+# LIMITRANGE VS RESOURCEQUOTA
+#
+# LimitRange answers:
+#   "Is this individual container or pod reasonably sized?"
+#
+# ResourceQuota answers:
+#   "Does the whole namespace still have enough remaining budget?"
+# =============================================================================

@@ -1,29 +1,43 @@
 # =============================================================================
-# FILE: 07-rbac/rolebinding.yaml
-# PURPOSE: Bind namespace-scoped Roles to concrete ServiceAccounts.
-#
-# WHY THIS FILE IS SEPARATE:
-#   Roles define permissions. RoleBindings grant those permissions to subjects.
-#   Splitting the binding into its own file helps learners see the RBAC graph:
-#   identity -> binding -> permissions.
+# FILE:    rolebinding.yaml
+# KIND:    RoleBinding
+# PURPOSE: Connect the gateway observer ServiceAccount to its namespace-scoped
+#          Role permissions.
+# WHEN:    setup/07-rbac - after service-account.yaml and role.yaml.
+# ENTERPRISE EQUIVALENT: RoleBindings are commonly managed through GitOps and
+#                        reviewed like code because they grant real access.
 # =============================================================================
 
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
+
 metadata:
-  name: nginx-pod-reader-binding
+  name: gateway-observer-binding
   namespace: applications
   labels:
-    app.kubernetes.io/component: rbac
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: rbac-binding
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
   annotations:
-    description: "Grants nginx service account read access to pod and service metadata"
+    description: "Grants the gateway observer identity read-only namespace visibility."
 
 roleRef:
+  # roleRef points to the permission set being granted.
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: nginx-pod-reader
+  name: gateway-observer
 
 subjects:
   - kind: ServiceAccount
-    name: nginx-service-account
+    # subjects points to the identity receiving the permissions.
+    name: inference-gateway-observer-sa
     namespace: applications
+
+# =============================================================================
+# RBAC GRAPH
+#
+# ServiceAccount/inference-gateway-observer-sa
+#   -> RoleBinding/gateway-observer-binding
+#   -> Role/gateway-observer
+#   -> read pods, logs, Services, endpoints, and ConfigMaps in applications
+# =============================================================================
