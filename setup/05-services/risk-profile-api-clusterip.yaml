@@ -1,0 +1,58 @@
+# =============================================================================
+# FILE:    risk-profile-api-clusterip.yaml
+# KIND:    Service
+# PURPOSE: Expose the sibling backend Deployment with a stable DNS name so the
+#          gateway Deployment can call it reliably across pod restarts, reschedules,
+#          and rolling updates.
+# WHEN:    setup/05-services - after risk-profile-api-deployment exists.
+# ENTERPRISE EQUIVALENT: This is the common east-west service discovery pattern
+#                        for internal APIs on EKS, GKE, and AKS. The caller talks
+#                        to stable service DNS while kube-proxy and endpoints
+#                        track whichever backend pods are currently healthy.
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: risk-profile-api-clusterip
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: risk-profile-api
+    app.kubernetes.io/component: internal-service
+    app.kubernetes.io/part-of: platform-networking-lab
+  annotations:
+    description: "Stable internal endpoint for the risk-profile-api Deployment"
+
+spec:
+  # This backend is internal only.
+  # The gateway calls it through cluster DNS, so ClusterIP is exactly the right type.
+  type: ClusterIP
+
+  selector:
+    app: risk-profile-api
+    tier: backend
+
+  ports:
+    - name: http
+      protocol: TCP
+
+      # Backend clients connect to Service port 80.
+      port: 80
+
+      # The actual backend container listens on 8081.
+      targetPort: http
+
+  sessionAffinity: None
+
+# =============================================================================
+# WHAT THIS ENABLES
+#
+# gateway pod
+#   -> http://risk-profile-api-clusterip/profile/rules
+#   -> Service endpoint list
+#   -> whichever backend pod is Ready
+#
+# This is the answer to:
+#   "How do multiple Deployments talk to each other reliably in Kubernetes?"
+# =============================================================================

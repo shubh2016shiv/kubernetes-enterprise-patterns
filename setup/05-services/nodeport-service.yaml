@@ -1,89 +1,63 @@
 # =============================================================================
-# FILE: 05-services/nodeport-service.yaml
-# PURPOSE: NodePort Service — exposes the service on a fixed port on EVERY
-#          node in the cluster, making it reachable from outside.
-#
-# WHEN TO USE NODEPORT vs LOADBALANCER:
-#
-#   NodePort:
-#     + Works everywhere (local, bare-metal, cloud, kind)
-#     + No external infrastructure required
-#     - Not production-grade for external traffic (no health checks, no SSL termination)
-#     - Port must be in 30000-32767 range (non-standard)
-#     - If the node the client connects to is down → connection fails
-#     USE: Local dev/testing, CI/CD, bare-metal demos
-#
-#   LoadBalancer:
-#     + Production-ready external access
-#     + Cloud LB is fault-tolerant (routes to healthy nodes)
-#     + Supports SSL termination at LB level
-#     - Requires cloud provider (or MetalLB on bare-metal)
-#     - Each LoadBalancer service = one cloud LB = billing
-#     - In large enterprises: 1 Ingress controller handles ALL external traffic,
-#       backed by 1 LB — individual services use ClusterIP
-#     USE: Production external-facing services in cloud environments
-#
-# ENTERPRISE REALITY: In most companies, NodePort is NOT used in production.
-# The pattern is:
-#   External traffic → Cloud LB → Ingress Controller (1 service of type LB)
-#                                     → nginx-svc (ClusterIP)
-#                                     → api-svc (ClusterIP)
-#                                     → auth-svc (ClusterIP)
-# One LB routes ALL traffic via path/host routing → massive cost saving.
+# FILE:    nodeport-service.yaml
+# KIND:    Service
+# PURPOSE: Expose the gateway Deployment to the learner's machine for local
+#          testing. This lets the learner call the gateway and observe that the
+#          gateway itself can then call a sibling backend through cluster DNS.
+# WHEN:    setup/05-services - after the learner understands ClusterIP.
+# ENTERPRISE EQUIVALENT: On AWS EKS this would usually be an ALB or NLB in
+#                        front of an Ingress or Gateway. On Google GKE, a
+#                        Google Cloud Load Balancer would play that role. On
+#                        Azure AKS, the external path is commonly Azure Load
+#                        Balancer or Application Gateway. NodePort exists there
+#                        too, but it is rarely the final public entry point.
 # =============================================================================
 
 apiVersion: v1
 kind: Service
+
 metadata:
-  name: nginx-nodeport
+  name: inference-gateway-nodeport
   namespace: applications
-
   labels:
-    app.kubernetes.io/name: nginx
-    app.kubernetes.io/component: web-server-external
-
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: external-learning-service
+    app.kubernetes.io/part-of: platform-networking-lab
   annotations:
-    description: "NodePort service for external access in dev/learning environment"
+    description: "Local external access path to inference-gateway via port 30000"
 
 spec:
+  # LOCAL:
+  #   NodePort is an easy way to expose the gateway from kind to localhost.
+  # ENTERPRISE:
+  #   Usually replaced by Ingress/Gateway + managed load balancer.
   type: NodePort
 
-  # Same selector as ClusterIP — SAME pods, different exposure method
-  # A pod can be exposed by MULTIPLE services simultaneously
-  # (e.g., one ClusterIP for internal, one NodePort for testing)
   selector:
-    app: nginx
-    tier: frontend
+    app: inference-gateway
+    tier: backend
 
   ports:
     - name: http
       protocol: TCP
-      # port: what the Service listens on internally (ClusterIP port)
       port: 80
-      # targetPort: the port on the Pod
       targetPort: http
-      # nodePort: The port opened on EVERY node's IP address.
-      # Range: 30000-32767 (configurable in API server with --service-node-port-range)
-      # If you OMIT this, K8s randomly assigns one from the range.
-      # ENTERPRISE RULE: Specify it explicitly so you know what to configure in firewalls.
-      #
-      # We set 30000 because in our kind-cluster-config.yaml we mapped:
-      #   containerPort: 30000 → hostPort: 30000
-      # This means localhost:30000 → kind node:30000 → pod:80
+
+      # Fixed external port on every node.
+      # This is intentionally pinned so the learner can hit localhost:30000 consistently.
       nodePort: 30000
 
-# ─── HOW TRAFFIC FLOWS WITH NODEPORT ─────────────────────────────────────────
-# Your machine → kind control-plane container:30000 → iptables → Pod:80
+# =============================================================================
+# TRAFFIC PATH FOR THIS MODULE
 #
-# Step by step:
-# 1. You open http://localhost:30000 in your browser
-# 2. Docker Desktop forwards :30000 to the kind control-plane container
-#    (because we set hostPort: 30000 in kind-cluster-config.yaml)
-# 3. The node's iptables rules (set by kube-proxy) intercept traffic on :30000
-# 4. kube-proxy DNAT's the packet to one of the pods (10.100.x.x:80)
-# 5. The packet is routed to the pod's nginx process
+# Browser or curl on laptop
+#   -> localhost:30000
+#   -> inference-gateway NodePort Service
+#   -> ready gateway pod
+#   -> gateway app calls risk-profile-api-clusterip
+#   -> ready backend pod
 #
-# VERIFY AFTER APPLYING:
-#   kubectl apply -f 05-services/nodeport-service.yaml
-#   curl http://localhost:30000
-#   → You should see the nginx default page!
+# This shows two different Service roles at once:
+#   1. external entry into the cluster
+#   2. internal service-to-service communication
+# =============================================================================

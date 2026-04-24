@@ -1,59 +1,56 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE: 04-deployments/rollback.sh
-# PURPOSE: Demonstrate a Deployment rollback after a bad rollout.
-#
-# WHY THIS EXISTS:
-#   Rolling updates are only half of the story. In enterprise operations, the
-#   real confidence comes from knowing how to inspect rollout history and return
-#   to the previous ReplicaSet quickly when a new version misbehaves.
+# FILE:    rollback.sh
+# PURPOSE: Demonstrate the rollback-only path for the gateway Deployment while
+#          showing that sibling Deployments are not automatically changed.
+# USAGE:   bash setup/04-deployments/rollback.sh
+# WHEN:    Use this after at least one rollout change exists in gateway history.
+# PREREQS: Deployment `inference-gateway-deployment` exists in namespace
+#          `applications` and has at least one previous revision.
+# OUTPUT:  The previous gateway ReplicaSet becomes active and the backend
+#          sibling Deployment remains healthy and unchanged.
 # =============================================================================
 
 set -euo pipefail
 
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │                    ROLLBACK FLOW                                          │
-# │                                                                           │
-# │  Stage 1: Check History                                                  │
-# │      └── kubectl rollout history deployment                              │
-# │                                                                           │
-# │  Stage 2: Execute Undo                                                   │
-# │      └── kubectl rollout undo deployment                                 │
-# │                                                                           │
-# │  Stage 3: Verify Rollback                                                │
-# │      └── Wait for pods to restart with previous ReplicaSet               │
-# └──────────────────────────────────────────────────────────────────────────┘
+# ┌────────────────────────────────────────────────────────────────────────────┐
+# │                           SCRIPT FLOW                                     │
+# │                                                                            │
+# │  Stage 1: Show Rollout History                                            │
+# │      └── Confirm there is a previous gateway revision to return to         │
+# │                                                                            │
+# │  Stage 2: Execute Rollback                                                │
+# │      └── Undo only the latest gateway revision                             │
+# │                                                                            │
+# │  Stage 3: Verify Health                                                   │
+# │      └── Wait for rollout to complete and confirm backend is still stable  │
+# └────────────────────────────────────────────────────────────────────────────┘
 
 NAMESPACE="applications"
-DEPLOYMENT_NAME="nginx-deployment"
+GATEWAY_DEPLOYMENT="inference-gateway-deployment"
+BACKEND_DEPLOYMENT="risk-profile-api-deployment"
 
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BOLD='\033[1m'
-RESET='\033[0m'
+section() {
+  echo ""
+  echo "=== $1 ==="
+}
 
-echo ""
-echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════${RESET}"
-echo -e "${CYAN}${BOLD}  Deployment Rollback Demonstration${RESET}"
-echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════${RESET}"
+run_cmd() {
+  echo "\$ $*"
+  "$@"
+  echo ""
+}
 
-echo ""
-echo -e "${BOLD}Stage 1.0 - Show rollout history${RESET}"
-kubectl rollout history deployment/"${DEPLOYMENT_NAME}" -n "${NAMESPACE}"
+section "Stage 1.0: Show Rollout History"
+run_cmd kubectl rollout history deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}"
 
+section "Stage 2.0: Execute Rollback"
+echo "If this were production, this command would revert the most recent bad gateway rollout."
+echo "Notice that we are rolling back a single Deployment, not the whole namespace."
 echo ""
-echo -e "${BOLD}Stage 2.0 - Undo the most recent rollout${RESET}"
-echo -e "  ${YELLOW}▸ Executing: kubectl rollout undo deployment/${DEPLOYMENT_NAME}${RESET}"
-kubectl rollout undo deployment/"${DEPLOYMENT_NAME}" -n "${NAMESPACE}"
+run_cmd kubectl rollout undo deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}"
 
-echo ""
-echo -e "${BOLD}Stage 3.0 - Wait for the rollback to finish${RESET}"
-kubectl rollout status deployment/"${DEPLOYMENT_NAME}" -n "${NAMESPACE}" --timeout=120s
-
-echo ""
-echo -e "${GREEN}✓ Rollback complete!${RESET}"
-echo ""
-echo -e "${BOLD}Stage 4.0 - Show current pods after rollback${RESET}"
-kubectl get pods -n "${NAMESPACE}" -l app=nginx -o wide
-echo ""
+section "Stage 3.0: Verify Health"
+run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
+run_cmd kubectl get pods -n "${NAMESPACE}" -l app=inference-gateway -o wide
+run_cmd kubectl get deployment "${BACKEND_DEPLOYMENT}" -n "${NAMESPACE}"

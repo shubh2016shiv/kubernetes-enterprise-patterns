@@ -1,78 +1,159 @@
 # 05-services
 
-## What is a Service?
-A Service is an abstract way to expose an application running on a set of Pods as a network service. Because Pod IPs change every time a Pod restarts or is recreated by a Deployment, you cannot rely on them. A Service gives your deployment a stable IP address and a stable DNS name, and acts as a load balancer across all healthy Pods.
+## What is this?
+A Service is the Kubernetes abstraction that gives a changing set of pods one stable network identity. In this module, Services do two jobs at once: they expose the gateway Deployment to clients and they let the gateway Deployment call a sibling backend Deployment reliably.
 
 ## Why does this exist?
-In an enterprise environment, applications are highly dynamic. Pods scale up, scale down, crash, and move between nodes. Without Services, components (like a frontend talking to a backend API) would constantly lose connection to each other as IPs change.
+In enterprise platforms, workloads are constantly moving. Pods restart, roll, reschedule, and scale. If one Deployment tried to call another by raw pod IP, it would break during normal cluster life. Services solve that by creating stable DNS names and stable virtual IPs. This is the practical answer to the learner question: "How do multiple Deployments talk to each other in Kubernetes?"
 
 ## Architecture
 
 ```text
-┌────────────────────────────────────────────────────────────┐
-│                  KUBERNETES CLUSTER                        │
-│                                                            │
-│                  ┌──────────────────┐                      │
-│   DNS Lookup ───►│      CoreDNS     │                      │
-│ (nginx-clusterip)└─────────┬────────┘                      │
-│                            │ (Returns 10.96.x.x)           │
-│                            ▼                               │
-│                  ┌──────────────────┐                      │
-│   Traffic ──────►│     SERVICE      │                      │
-│                  │ (Stable IP/DNS)  │                      │
-│                  └─────────┬────────┘                      │
-│                            │                               │
-│              Endpoints (Auto-updated via Selectors)        │
-│          ┌─────────────────┼─────────────────┐             │
-│          ▼                 ▼                 ▼             │
-│   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐      │
-│   │ Pod (IP A)  │   │ Pod (IP B)  │   │ Pod (IP C)  │      │
-│   │ (Ready)     │   │ (Ready)     │   │ (Not Ready) │      │
-│   └─────────────┘   └─────────────┘   └─────────────┘      │
-│     Gets traffic      Gets traffic      Ignored            │
-└────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         KUBERNETES CLUSTER                                 │
+│                                                                             │
+│  Client pod or laptop                                                      │
+│        │                                                                    │
+│        │ 1. call gateway Service                                            │
+│        ▼                                                                    │
+│  inference-gateway Service                                                  │
+│        │                                                                    │
+│        ▼                                                                    │
+│  gateway pod                                                                │
+│        │                                                                    │
+│        │ 2. call sibling backend by Service DNS                             │
+│        ▼                                                                    │
+│  risk-profile-api Service                                                   │
+│        │                                                                    │
+│        ▼                                                                    │
+│  backend pod A / backend pod B                                              │
+│                                                                             │
+│  Key lesson:                                                                │
+│    Deployment -> owns pod lifecycle                                         │
+│    Service    -> owns stable discovery and traffic routing                  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Learning Steps
+## Learning steps
 
-1. **Internal Routing**: Review `clusterip-service.yaml`. This is the default and most common service type. It exposes the service on a cluster-internal IP.
-2. **External Access**: Review `nodeport-service.yaml`. This opens a specific port on every Node's IP. It is used here for local testing.
-3. **Apply and Inspect**: Run `service-commands.sh` to see how Endpoints are wired to Services, and how DNS resolution works.
+1. Read [risk-profile-api-clusterip.yaml](/mnt/d/Generative%20AI%20Portfolio%20Projects/kubernetes_architure/setup/05-services/risk-profile-api-clusterip.yaml) first. It is the internal Service that answers the question "how does one Deployment reach another?"
+2. Read [clusterip-service.yaml](/mnt/d/Generative%20AI%20Portfolio%20Projects/kubernetes_architure/setup/05-services/clusterip-service.yaml) to understand the gateway's internal stable identity.
+3. Read [nodeport-service.yaml](/mnt/d/Generative%20AI%20Portfolio%20Projects/kubernetes_architure/setup/05-services/nodeport-service.yaml) to understand the local external-access shortcut.
+4. Run [commands.sh](/mnt/d/Generative%20AI%20Portfolio%20Projects/kubernetes_architure/setup/05-services/commands.sh) to apply the Services, inspect endpoints, test DNS resolution, and watch gateway-to-backend communication through Service DNS.
+5. Compare this module with `04-deployments/`: Deployments create and maintain pods; Services give those pods stable discoverable entry points.
+6. Move next to `06-configmaps-secrets/` because once the application graph is stable, the next production concern is separating code from configuration and credentials.
+
+## What `risk-profile-api-clusterip.yaml` means in enterprise terms
+
+[risk-profile-api-clusterip.yaml](/mnt/d/Generative%20AI%20Portfolio%20Projects/kubernetes_architure/setup/05-services/risk-profile-api-clusterip.yaml) means:
+
+```text
+Give the risk-profile-api backend Deployment a stable internal DNS name
+so other workloads can call it without knowing pod IPs.
+```
+
+In real Kubernetes, one pod should not call another pod by raw IP. Pod IPs are temporary because pods restart, roll, reschedule, and scale. Instead, a gateway or another service calls the backend Service name:
+
+```text
+http://risk-profile-api-clusterip/profile/rules
+```
+
+Kubernetes then routes that request to one of the ready backend pods behind the Service.
+
+The real enterprise relationship is:
+
+```text
+Deployment
+  owns pod lifecycle
+
+Service
+  owns stable network identity
+
+Gateway pod
+  calls backend Service DNS
+
+Backend Service
+  routes to ready backend pods
+```
 
 ## Commands
 
-### 1. Apply and Test Services
+Run the walkthrough:
+
 ```bash
-bash setup/05-services/service-commands.sh
+bash setup/05-services/commands.sh
 ```
 
-**What you should see**:
+What you should see on the happy path:
+
+```text
+=== Stage 1.0: Apply Services ===
+service/risk-profile-api-clusterip created
+service/inference-gateway-clusterip created
+service/inference-gateway-nodeport created
+
+=== Stage 3.0: Inspect Endpoints ===
+inference-gateway-clusterip  10.x.x.x:8080,10.x.x.x:8080,...
+risk-profile-api-clusterip   10.x.x.x:8081,10.x.x.x:8081
+
+=== Stage 5.0: Test Communication Paths ===
+... direct backend JSON ...
+... gateway dependency_check JSON ...
 ```
-=== Step 1: Applying Services ===
-service/nginx-clusterip created
-service/nginx-nodeport created
 
-=== Step 3: Endpoints — Where Traffic Actually Goes ===
-NAME              ENDPOINTS                                      AGE
-nginx-clusterip   10.244.1.5:80,10.244.2.4:80,10.244.2.5:80      5s
-...
+Useful manual commands:
+
+```bash
+kubectl get svc -n applications
+kubectl get endpoints -n applications
+kubectl describe svc inference-gateway-clusterip -n applications
+kubectl describe svc risk-profile-api-clusterip -n applications
+kubectl exec platform-debug-toolbox -n applications -- nslookup inference-gateway-clusterip
+kubectl exec platform-debug-toolbox -n applications -- nslookup risk-profile-api-clusterip
+kubectl exec platform-debug-toolbox -n applications -- wget -qO- http://risk-profile-api-clusterip/profile/rules
+kubectl exec platform-debug-toolbox -n applications -- wget -qO- http://inference-gateway-clusterip/dependencies
+curl http://localhost:30000/dependencies
 ```
 
-### 2. Manual Testing
-The `nodeport-service` exposes port 30000 to your local machine (thanks to our `kind` port mapping in Phase 1).
-
-Open your browser to: `http://localhost:30000`
-
-## Enterprise Translation
+## Enterprise translation
 
 | What we do locally | What enterprise does | Why it differs |
 |---|---|---|
-| NodePort Service | LoadBalancer Service + Ingress/Gateway API | NodePorts are insecure and hard to manage (port conflicts). Enterprises use cloud load balancers (AWS ALB) or Ingress Controllers for external traffic. |
-| Basic `ClusterIP` | Service Mesh (Istio / Linkerd) | A standard ClusterIP does raw L4 TCP load balancing. Service meshes provide L7 (HTTP) routing, retries, circuit breaking, and mutual TLS encryption. |
-| Flat DNS | Cross-cluster DNS | In massive enterprises, services might need to discover other services residing in entirely different physical clusters. |
+| Gateway NodePort on `localhost:30000` | AWS ALB / NLB on EKS, GCLB on GKE, Azure Load Balancer / Application Gateway on AKS | Cloud platforms provide managed external entry points with TLS, health checks, DNS, and firewall integration. |
+| Gateway calling backend by ClusterIP Service DNS | The same east-west Service pattern, often plus service mesh | Enterprises may add mTLS, retries, timeouts, auth, and traffic policy, but the stable Service identity is still the base. |
+| Manual `kubectl` endpoint checks | GitOps plus dashboards and alerts | Operators still inspect Services and endpoints, but often after Prometheus, Grafana, Datadog, or cloud monitoring detects trouble. |
+| One namespace with two Services | Many Services across namespaces and environments | Large organizations separate dev, staging, prod, and often split services by team or domain. |
 
-## What to Check If Something Goes Wrong
+## What to check if something goes wrong
 
-1. **Service exists but connection refused**: The Service's `selector` does not match the Pod labels. Run `kubectl get endpoints <service-name> -n applications`. If it says `<none>`, the labels don't match.
-2. **Endpoints exist but traffic times out**: Check if the `targetPort` in your Service YAML matches the `containerPort` in your Pod YAML.
-3. **Pods are running but endpoints is empty**: The Pods might be failing their `readinessProbe`. Only *Ready* pods are added to the Endpoints list. Run `kubectl get pods -n applications` and check the `READY` column.
+1. Service exists but has no endpoints:
+Run `kubectl get endpoints <service-name> -n applications`. If endpoints are empty, the selector does not match pod labels or the pods are not `Ready`.
+
+2. Backend Service works directly but gateway dependency path fails:
+That usually means the backend is healthy but the gateway is misconfigured, cannot resolve DNS, or is calling the wrong URL path.
+
+3. DNS resolution fails inside the cluster:
+Run `kubectl exec platform-debug-toolbox -n applications -- cat /etc/resolv.conf` and check CoreDNS pods in `kube-system`. Service discovery depends on cluster DNS being healthy.
+
+4. NodePort opens but browser access fails:
+Check the kind port mapping and verify the Service exists with `nodePort: 30000`. In cloud environments, this kind of failure is often replaced by load balancer target registration or security group issues.
+
+5. One backend pod is missing from the endpoint list:
+That can be correct. Services include only pods that pass readiness. A `Running` pod can still be excluded from traffic if readiness fails.
+
+## Happy path: how to read the output
+
+1. Three `service/... created` lines:
+Kubernetes now has stable entry points for the gateway and the backend, plus one local external route into the gateway.
+
+2. `kubectl get endpoints` shows `:8080` for gateway and `:8081` for backend:
+That proves the Services are routing to actual ready pods on the real container ports, not to the Deployments themselves.
+
+3. `nslookup` succeeds for both Services:
+CoreDNS is healthy, so pods can find each other by Service DNS name.
+
+4. Direct backend call returns JSON:
+The backend Deployment, its Service selector, endpoints, and readiness all line up correctly.
+
+5. Gateway `/dependencies` returns a `dependency_check` object:
+This is the practical proof that one Deployment is now talking to another through a Service, which is the enterprise pattern you were asking about.

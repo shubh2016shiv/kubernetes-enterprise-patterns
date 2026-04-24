@@ -1,124 +1,58 @@
 # =============================================================================
-# FILE: 05-services/clusterip-service.yaml
-# PURPOSE: ClusterIP Service — the default service type for internal
-#          pod-to-pod communication in Kubernetes.
-#
-# WHAT IS A KUBERNETES SERVICE?
-#   A Service is a STABLE NETWORK ENDPOINT that routes traffic to a dynamic
-#   set of Pods. It solves the fundamental problem:
-#
-#   The Problem: Pod IPs change constantly (restart, reschedule, rolling update).
-#                You cannot hardcode "connect to 10.100.0.5" in your app.
-#
-#   The Solution: A Service has a STABLE ClusterIP (virtual IP that never changes)
-#                 and a STABLE DNS name. Traffic to the Service is load-balanced
-#                 across all matching pods by kube-proxy.
-#
-# HOW IT WORKS INTERNALLY:
-#   1. You create a Service with a selector (e.g., app=nginx)
-#   2. The Endpoints controller watches for Pods with matching labels
-#   3. When pods appear/disappear, it updates the Endpoints object
-#   4. kube-proxy watches Endpoints and updates iptables/ipvs rules on each node
-#   5. Traffic to the Service's ClusterIP is DNAT'd to one of the pod IPs
-#
-# THREE SERVICE TYPES (know all three for every K8s interview):
-#
-#   ClusterIP (default):
-#     - Accessible ONLY from within the cluster
-#     - Has a virtual IP from the serviceSubnet (10.200.0.0/16 in our cluster)
-#     - DNS name: <service>.<namespace>.svc.cluster.local
-#     - Use: internal microservice-to-microservice communication
-#
-#   NodePort:
-#     - Exposes the service on a SPECIFIC PORT on EVERY node's IP
-#     - Port range: 30000-32767 (configurable)
-#     - Reachable from outside: http://<node-ip>:<node-port>
-#     - Use: development, testing, or simple external access
-#
-#   LoadBalancer:
-#     - Creates a cloud provider's load balancer (AWS ALB, GCP LB, Azure LB)
-#     - Assigns an external IP address
-#     - Use: production external-facing services
-#     - NOT available on bare-metal without MetalLB or similar
-#     - In kind: requires Cloud Provider Kind or MetalLB add-on
+# FILE:    clusterip-service.yaml
+# KIND:    Service
+# PURPOSE: Expose the gateway Deployment on a stable internal ClusterIP so
+#          workloads inside the cluster can reach it by DNS name instead of by
+#          changing pod IPs.
+# WHEN:    setup/05-services - after the gateway Deployment exists.
+# ENTERPRISE EQUIVALENT: The same ClusterIP Service pattern is used on AWS EKS,
+#                        Google GKE, and Azure AKS. Even when traffic arrives
+#                        through an ALB, GCLB, or Application Gateway, the
+#                        backend often still sits behind a ClusterIP Service.
 # =============================================================================
 
 apiVersion: v1
 kind: Service
+
 metadata:
-  name: nginx-clusterip
+  name: inference-gateway-clusterip
   namespace: applications
-
   labels:
-    app.kubernetes.io/name: nginx
-    app.kubernetes.io/component: web-server-internal
-
+    app.kubernetes.io/name: inference-gateway
+    app.kubernetes.io/component: internal-service
+    app.kubernetes.io/part-of: platform-networking-lab
   annotations:
-    description: "ClusterIP service for internal nginx access"
-    # In enterprise: service mesh (Istio) uses annotations to configure routing
+    description: "Stable internal endpoint for the inference-gateway Deployment"
 
 spec:
-  # ── SERVICE TYPE ────────────────────────────────────────────────────────────
-  # ClusterIP: Only reachable from within the cluster
-  # This is the default — you can omit this line and get ClusterIP
+  # ClusterIP is the default Service type.
+  # It gives the gateway a stable virtual IP and DNS identity inside the cluster.
   type: ClusterIP
 
-  # ── SELECTOR ────────────────────────────────────────────────────────────────
-  # The selector finds which Pods this Service should route traffic to.
-  # Any Pod with ALL of these labels is included in the Service's endpoint list.
-  #
-  # HOW THE SELECTOR IS RESOLVED:
-  #   K8s Endpoints controller watches for Pods with these labels.
-  #   It maintains an "Endpoints" object (try: kubectl get endpoints -n applications)
-  #   The Endpoints object contains the actual IP:Port of each matching Pod.
-  #   kube-proxy reads Endpoints and creates iptables rules for load balancing.
-  #
-  # IF NO PODS MATCH: Service exists but Endpoints is empty → traffic is dropped.
-  # This is a common misconfiguration! Always verify: kubectl get endpoints <service>
+  # The selector chooses gateway pods, not the Deployment object itself.
+  # Services route to ready pod endpoints that match these labels.
   selector:
-    app: nginx        # Must match labels on the Pods (from the Deployment template)
-    tier: frontend    # Additional specificity
+    app: inference-gateway
+    tier: backend
 
-  # ── PORTS ────────────────────────────────────────────────────────────────────
   ports:
-    - name: http              # Name this port (useful when a service has multiple ports)
-      # protocol: TCP (default), UDP, or SCTP
-      # In enterprise: most services are TCP; UDP used for DNS (CoreDNS), metrics (statsd)
+    - name: http
       protocol: TCP
-      # port: The port number the Service exposes (what clients connect to)
-      # This is the "front door" port of the Service
-      port: 80
-      # targetPort: The port on the Pod that traffic is forwarded to
-      # Can be a number (80) or a named port from the Pod spec (containerPort name: "http")
-      # USING NAMED PORTS IS ENTERPRISE BEST PRACTICE:
-      #   If your app changes its port, update only the Pod spec — Service still works
-      targetPort: http  # Refers to port name "http" in the Deployment's containerPort
 
-  # ── SESSION AFFINITY ─────────────────────────────────────────────────────────
-  # sessionAffinity: Should the same client always go to the same pod?
-  #   None: True load balancing (random pod each request) — default
-  #   ClientIP: Same client IP always goes to same pod (sticky sessions)
-  #
-  # ENTERPRISE USE: ClientIP is sometimes used for stateful protocols that don't
-  # support horizontal scaling well (some legacy WebSocket apps, gRPC streams).
-  # AVOID for pure stateless REST APIs — undermines the value of multiple replicas.
+      # Clients inside the cluster connect to port 80 on the Service.
+      port: 80
+
+      # The gateway container actually listens on port 8080.
+      # Using the named port keeps the Service readable and resilient to pod-level port renames.
+      targetPort: http
+
   sessionAffinity: None
 
-# ─── DNS RESOLUTION (HOW PODS FIND THIS SERVICE) ─────────────────────────────
-# After creating this service, any pod in the cluster can reach nginx via:
+# =============================================================================
+# KEY LEARNING NOTE
 #
-#   FULL DNS NAME:
-#     nginx-clusterip.applications.svc.cluster.local
-#     ↑ service  ↑ namespace   ↑ always "svc" ↑ cluster domain
-#
-#   SHORT NAMES (from within same namespace):
-#     nginx-clusterip              (within "applications" namespace)
-#     nginx-clusterip.applications (from any namespace)
-#
-#   HOW IT RESOLVES:
-#     Pod's /etc/resolv.conf has "search applications.svc.cluster.local svc.cluster.local"
-#     So "nginx-clusterip" gets expanded to the full FQDN automatically.
-#
-# TRY IT:
-#   kubectl exec -it platform-debug-toolbox -n applications -- curl nginx-clusterip
-#   kubectl exec -it platform-debug-toolbox -n applications -- nslookup nginx-clusterip
+# This Service exposes the gateway.
+# A DIFFERENT Service will expose the sibling backend Deployment.
+# The gateway will call that sibling backend by its Service DNS name, not by
+# the Deployment name and not by raw pod IP.
+# =============================================================================
