@@ -1,0 +1,198 @@
+# =============================================================================
+# FILE: 01-cluster-setup/kind-cluster-config.yaml
+# PURPOSE: Defines the topology of our local Kubernetes cluster.
+#          This YAML is the "blueprint" that kind reads to create the cluster.
+#
+# ENTERPRISE CONTEXT:
+#   In production, you don't define cluster topology in YAML — AWS/GKE/AKS
+#   provision nodes for you via Terraform or their managed service console.
+#   BUT the topology CONCEPTS here (control plane, worker nodes, HA) are
+#   identical to what you'd architect in production.
+#
+#   This config creates:
+#     - 1 control-plane node  → where the K8s "brain" runs (API server, etcd)
+#     - 2 worker nodes        → where your actual application pods run
+#
+#   This is the MINIMUM topology that resembles a real production cluster.
+#   A single-node cluster (the Docker Desktop default) hides how K8s actually
+#   works because both control-plane and workloads share one node.
+#
+# LEARNING OBJECTIVE:
+#   Understand that a Kubernetes cluster is NOT one machine — it's a set of
+#   machines with specific roles, connected by the cluster network.
+# =============================================================================
+
+# ─── API VERSION & KIND ───────────────────────────────────────────────────────
+# Every Kubernetes-adjacent YAML (including kind configs) follows the same
+# pattern: apiVersion + kind defines what type of object this file describes.
+#
+# "kind.x-k8s.io/v1alpha4" is the API version for the kind tool's own config
+# schema. This is NOT a Kubernetes API — it's kind's own config format.
+# kind: Cluster tells kind "this YAML describes a cluster to create"
+apiVersion: kind.x-k8s.io/v1alpha4
+kind: Cluster
+
+# ─── CLUSTER NAME ─────────────────────────────────────────────────────────────
+# Enterprise naming convention: {environment}-{purpose}-cluster
+# "local" = local developer environment
+# "enterprise" = mirrors enterprise topology
+# "dev" = development tier (vs staging / prod)
+#
+# This name appears in:
+#   - `kind get clusters` output
+#   - The kubectl context name: "kind-local-enterprise-dev"
+#   - Docker container names: "local-enterprise-dev-control-plane"
+name: local-enterprise-dev
+
+# ─── NETWORKING ───────────────────────────────────────────────────────────────
+# Controls how pods communicate with each other and with external traffic.
+# These settings mirror what you'd configure in a production cluster's CNI
+# (Container Network Interface) plugin (e.g., Calico, Cilium, Flannel).
+networking:
+  # apiServerAddress: The IP where the Kubernetes API server is reachable
+  # from OUTSIDE the cluster. "127.0.0.1" = only accessible from localhost.
+  # In production: This would be a private IP or a load balancer IP.
+  apiServerAddress: "127.0.0.1"
+
+  # apiServerPort: The port for the Kubernetes API server.
+  # 6443 is the standard HTTPS port for the K8s API — same in every cluster.
+  # In enterprise: Firewall rules would restrict this to bastion hosts only.
+  apiServerPort: 6443
+
+  # podSubnet: The IP range allocated for Pod IP addresses.
+  # Every Pod gets an IP from this range. This MUST NOT overlap with:
+  #   - Your host machine's network
+  #   - The serviceSubnet below
+  #   - Your corporate VPN ranges (important enterprise gotcha!)
+  # Default is 10.244.0.0/16 (Flannel convention) — we use 10.100.0.0/16
+  # to make it clearly distinguishable in our learning environment.
+  podSubnet: "10.100.0.0/16"
+
+  # serviceSubnet: The IP range for Service (ClusterIP) virtual IPs.
+  # Services are NOT actual machines — they're virtual IPs managed by kube-proxy.
+  # Traffic to a Service IP is intercepted by iptables rules on each node.
+  # ENTERPRISE NOTE: This CIDR must never appear in your actual corporate network.
+  serviceSubnet: "10.200.0.0/16"
+
+# ─── NODES ────────────────────────────────────────────────────────────────────
+# Each entry here creates one Docker container that acts as a K8s node.
+# role: control-plane → runs the K8s control plane (API server, scheduler, etcd)
+# role: worker        → runs application workloads (your pods)
+#
+# CRITICAL ENTERPRISE CONCEPT — Control Plane Components (what runs on it):
+#   kube-apiserver    → REST API for everything (kubectl talks to this)
+#   etcd              → Distributed key-value store, THE source of truth
+#                       (all cluster state lives here — losing etcd = losing cluster)
+#   kube-scheduler    → Decides WHICH node each pod runs on
+#   kube-controller-manager → Reconciliation loops (keeps desired state = actual state)
+#
+# CRITICAL ENTERPRISE CONCEPT — Worker Node Components:
+#   kubelet           → Reads pod assignments from API server, starts containers
+#   kube-proxy        → Manages iptables/ipvs rules for Service routing
+#   container runtime → Actually runs containers (containerd in modern K8s)
+nodes:
+
+  # ── CONTROL PLANE NODE ────────────────────────────────────────────────────
+  # There is ONE control plane in this config (not HA).
+  # Production clusters run 3 or 5 control-plane nodes for high availability.
+  # (odd numbers ensure etcd quorum: need (n/2)+1 nodes to elect a leader)
+  #
+  # image: Explicitly pins the Kubernetes version.
+  # ENTERPRISE RULE: Always pin versions. Never use "latest".
+  # Unpinned versions cause cluster upgrades to happen unintentionally,
+  # breaking applications that depend on specific K8s API behaviors.
+  #
+  # Match this to what your production EKS/GKE/AKS cluster runs.
+  # Check: https://endoflife.date/kubernetes for support timelines.
+  - role: control-plane
+    image: kindest/node:v1.30.6@sha256:b6d08db72079ba5ae1f4a88a09025c0a904af3b52387643c285442afb05ab994
+    #                                  ↑ SHA256 hash pins the EXACT image layer
+    #                                    This is CRITICAL in enterprise security.
+    #                                    Without it, "v1.30.6" could be re-tagged
+    #                                    to point to a different image (supply chain attack).
+
+    # extraPortMappings: Forward ports from your host machine INTO the cluster.
+    # This is how you access services running in the cluster from your browser.
+    #
+    # containerPort 80  → Ingress HTTP traffic
+    # containerPort 443 → Ingress HTTPS traffic
+    #
+    # ENTERPRISE EQUIVALENT: Security Group / firewall rules that allow
+    # specific ports through to your load balancer.
+    extraPortMappings:
+      - containerPort: 80        # HTTP → Ingress Controller
+        hostPort: 8080           # Access via http://localhost:8080 on your machine
+        protocol: TCP
+      - containerPort: 443       # HTTPS → Ingress Controller
+        hostPort: 8443           # Access via https://localhost:8443
+        protocol: TCP
+      - containerPort: 30000     # NodePort range start
+        hostPort: 30000          # Direct NodePort access from host
+        protocol: TCP
+      - containerPort: 30001     # Second NodePort (for additional services)
+        hostPort: 30001
+        protocol: TCP
+
+    # kubeadmConfigPatches: Low-level configuration for the control plane.
+    # kubeadm is the tool that bootstraps the K8s control plane components.
+    # In EKS/GKE/AKS, this is managed by the cloud provider — you never
+    # configure it directly. In bare-metal K8s, you'd use these settings.
+    #
+    # Here we add feature gates — runtime flags that enable beta/alpha features.
+    # In enterprise, you track feature gate graduation to know when to adopt
+    # features in production (alpha → beta → stable → deprecated).
+    kubeadmConfigPatches:
+    - |
+      kind: InitConfiguration
+      nodeRegistration:
+        # kubeletExtraArgs: Extra flags passed to the kubelet on this node
+        kubeletExtraArgs:
+          # node-labels: Labels applied to THIS node in the cluster
+          # Labels are key=value metadata used by scheduling (nodeSelector, affinity)
+          # "topology.kubernetes.io/zone" is a STANDARD label in enterprise K8s
+          # Cloud providers set zone labels on real nodes automatically.
+          # We set it manually to teach you the concept.
+          node-labels: "ingress-ready=true,topology.kubernetes.io/zone=us-east-1a"
+
+  # ── WORKER NODE 1 ─────────────────────────────────────────────────────────
+  # Worker nodes run your application pods. They do NOT run control plane
+  # components. This matches production: your app never runs on control plane.
+  #
+  # ENTERPRISE RULE: In real clusters, you'd use NodeSelectors, Taints/Tolerations,
+  # or Node Affinity to ensure pods land on appropriate worker nodes.
+  # Control planes are "tainted" so no regular pods schedule on them.
+  - role: worker
+    image: kindest/node:v1.30.6@sha256:b6d08db72079ba5ae1f4a88a09025c0a904af3b52387643c285442afb05ab994
+    kubeadmConfigPatches:
+    - |
+      kind: JoinConfiguration
+      nodeRegistration:
+        kubeletExtraArgs:
+          # Label this worker as being in "us-east-1b" availability zone
+          # In enterprise multi-AZ deployments, pods are spread across zones
+          # using TopologySpreadConstraints to ensure HA
+          node-labels: "topology.kubernetes.io/zone=us-east-1b"
+
+  # ── WORKER NODE 2 ─────────────────────────────────────────────────────────
+  # A second worker simulates the multi-node reality of production.
+  # With 2+ workers, you can observe:
+  #   - How the scheduler distributes pods across nodes
+  #   - How a node failure (docker stop <container>) triggers pod rescheduling
+  #   - How NodeAffinity and AntiAffinity rules work
+  - role: worker
+    image: kindest/node:v1.30.6@sha256:b6d08db72079ba5ae1f4a88a09025c0a904af3b52387643c285442afb05ab994
+    kubeadmConfigPatches:
+    - |
+      kind: JoinConfiguration
+      nodeRegistration:
+        kubeletExtraArgs:
+          node-labels: "topology.kubernetes.io/zone=us-east-1c"
+
+# ─── WHAT HAPPENS WHEN YOU CREATE THIS CLUSTER ────────────────────────────────
+# 1. kind pulls the kindest/node image (contains K8s binaries pre-installed)
+# 2. Creates 3 Docker containers: 1 control-plane + 2 workers
+# 3. Runs kubeadm init on control-plane → bootstraps API server, etcd, scheduler
+# 4. Runs kubeadm join on workers → joins them to the cluster
+# 5. Installs kindnet (the CNI plugin) → enables pod-to-pod networking
+# 6. Writes cluster credentials to ~/.kube/config → enables kubectl access
+# 7. Entire process takes ~60-90 seconds on a modern machine
