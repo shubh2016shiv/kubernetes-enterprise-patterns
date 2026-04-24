@@ -37,26 +37,41 @@ def load_training_env_config() -> TrainingPipelineEnvConfig:
     """
     Read and validate required environment variables.
 
-    Raises RuntimeError immediately if any required variable is absent so
-    that the Kubernetes Job fails fast with a clear error rather than
-    producing incorrect output silently.
+    For local development, sensible defaults are provided:
+      ARTIFACT_STORE_ROOT   → artifacts/
+      PIPELINE_CONFIG_PATH  → configs/training_pipeline.yaml
 
-    ENTERPRISE EMPHASIS: Failing fast on missing configuration prevents the
+    In Kubernetes, these are overridden by the Job spec env injection from
+    ConfigMap/Secret values, which take precedence over defaults.
+
+    ENTERPRISE EMPHASIS: Failing fast on invalid configuration prevents the
     job from reaching the model-training phase and writing a corrupt artifact
     to the artifact store — a mistake that is expensive to detect downstream.
     """
-    _require_env_vars(
-        required=[
-            "ARTIFACT_STORE_ROOT",
-            "PIPELINE_CONFIG_PATH",
-        ]
+    artifact_store_root = os.environ.get(
+        "ARTIFACT_STORE_ROOT",
+        "artifacts"  # local development default
+    )
+    pipeline_config_path = os.environ.get(
+        "PIPELINE_CONFIG_PATH",
+        "configs/training_pipeline.yaml"  # local development default
     )
 
+    artifact_store_path = Path(artifact_store_root)
+    config_path = Path(pipeline_config_path)
+
+    if not config_path.exists():
+        raise RuntimeError(
+            f"Pipeline config not found at '{config_path}'. "
+            f"Set PIPELINE_CONFIG_PATH to the correct path or run from the "
+            f"ml-training directory where '{pipeline_config_path}' exists."
+        )
+
     return TrainingPipelineEnvConfig(
-        artifact_store_root=Path(os.environ["ARTIFACT_STORE_ROOT"]),
-        pipeline_config_path=Path(os.environ["PIPELINE_CONFIG_PATH"]),
+        artifact_store_root=artifact_store_path,
+        pipeline_config_path=config_path,
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
-        optuna_n_trials=int(os.environ.get("OPTUNA_N_TRIALS", "50")),
+        optuna_n_trials=int(os.environ.get("OPTUNA_N_TRIALS", "60")),
         random_seed=int(os.environ.get("RANDOM_SEED", "42")),
     )
 
