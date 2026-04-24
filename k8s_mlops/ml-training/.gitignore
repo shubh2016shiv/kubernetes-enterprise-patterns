@@ -1,0 +1,36 @@
+# Virtual environment created by uv
+.venv/
+
+# Generated artifact versions (model snapshots, metrics, hyperparams)
+# Keep .gitkeep files to establish directory structure
+artifacts/**
+!artifacts/.gitkeep
+!artifacts/*/.gitkeep
+
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# pytest cache and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp

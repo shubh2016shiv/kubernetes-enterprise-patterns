@@ -1,0 +1,83 @@
+# training_pipeline.yaml
+#
+# Non-sensitive runtime configuration for the wine quality training pipeline.
+#
+# In Kubernetes, this file is mounted from a ConfigMap:
+#
+#   kubectl create configmap wine-training-pipeline-config \
+#     --from-file=training_pipeline.yaml=configs/training_pipeline.yaml \
+#     -n mlops
+#
+# The Job spec references it via a volume mount and sets:
+#   PIPELINE_CONFIG_PATH=/etc/mlops/config/training_pipeline.yaml
+#
+# ENTERPRISE EMPHASIS: Storing pipeline configuration in a ConfigMap (not baked
+# into the container image) means the search space, CV settings, and model
+# families can be changed between training runs without rebuilding the image.
+# Image rebuilds are expensive, slow down CI, and require a new image tag — all
+# avoidable for pure configuration changes.
+
+experiment_name: wine-quality-cultivar-classification-v1
+
+# Artifact store root on the local filesystem / PVC mount path in Kubernetes.
+# Override with ARTIFACT_STORE_ROOT env var at runtime.
+# In production this would be the mount path of a PVC backed by object storage
+# (e.g. S3-compatible MinIO, or a CSI driver for Azure Blob / GCS).
+#
+# ENTERPRISE EMPHASIS: The artifact_store_root path must match the mountPath
+# declared in the Kubernetes Job's volumeMounts section. A mismatch between
+# this value and the PVC mount means artifacts are written to ephemeral
+# container storage and lost when the pod terminates.
+artifact_store_root: artifacts
+
+# Model families to include in the Optuna search.
+# Each entry must match a key in SEARCH_SPACE_REGISTRY (hyperparameter_search_config.py).
+# Remove a family to exclude it from the search without modifying Python code.
+model_families:
+  - random_forest
+  - gradient_boosting
+  - logistic_regression
+
+# Fraction of the dataset held out for final model evaluation.
+# Never used during hyperparameter search — only read by the evaluation phase.
+#
+# ENTERPRISE EMPHASIS: The test split must be locked and never used for
+# hyperparameter selection. Using it as a selection signal (directly or
+# via repeated evaluation) inflates reported metrics and produces a model
+# that is not as good as the metrics suggest.
+test_size: 0.20
+
+# Seed for reproducible train/test splits and model weight initialisation.
+# All phases that involve randomness read this value.
+#
+# ENTERPRISE EMPHASIS: A fixed seed ensures that two pipeline runs on the
+# same dataset produce the same train/test split, making metric comparisons
+# between model versions valid. Changing the seed is a legitimate experiment
+# but must be documented in the run manifest.
+random_seed: 42
+
+# Number of stratified k-fold cross-validation folds used during Optuna search.
+# Higher values give more stable CV estimates but increase search wall-clock time.
+cv_folds: 5
+
+optuna:
+  # Total number of trials across all model families.
+  # Each trial samples one model family and one hyperparameter configuration.
+  #
+  # ENTERPRISE EMPHASIS: In a Kubernetes Job, n_trials directly controls
+  # CPU time and therefore cost. For a production retraining CronJob, set
+  # this based on your compute budget and required search coverage, and track
+  # it in the run_manifest so cost can be attributed per run.
+  n_trials: 60
+
+  # Optional wall-clock timeout in seconds. null means no timeout.
+  # Useful for bounded-cost training Jobs in shared clusters.
+  timeout_seconds: null
+
+  # Optuna optimisation direction. Use "maximize" for accuracy-family metrics.
+  direction: maximize
+
+  # Sklearn scoring string used as both the CV objective and the primary
+  # reported metric. balanced_accuracy penalises class imbalance equally,
+  # making it more honest than plain accuracy on multi-class problems.
+  metric: balanced_accuracy
