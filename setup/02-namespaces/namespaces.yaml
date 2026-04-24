@@ -1,0 +1,165 @@
+# =============================================================================
+# FILE: 02-namespaces/namespaces.yaml
+# PURPOSE: Define the enterprise namespace structure for our cluster.
+#
+# WHAT IS A NAMESPACE?
+#   A namespace is a virtual partition INSIDE a single Kubernetes cluster.
+#   Think of it like a folder, but with enforced isolation:
+#     - Resources in namespace A are invisible to resources in namespace B
+#       (unless explicitly allowed via NetworkPolicy or service DNS)
+#     - Resource quotas and limits can be applied per-namespace
+#     - RBAC (Role-Based Access Control) is scoped to namespaces
+#     - Teams/projects own their namespace independently
+#
+# ENTERPRISE ANALOGY:
+#   A large bank running K8s might have namespaces like:
+#     - payments-prod    → Payment processing microservices in production
+#     - payments-staging → Same services in staging
+#     - fraud-detection  → ML-powered fraud models
+#     - api-gateway      → Ingress controllers and external-facing services
+#     - monitoring       → Prometheus, Grafana, Alertmanager
+#     - security         → Vault, cert-manager, OPA Gatekeeper
+#
+# BUILT-IN NAMESPACES (what K8s creates by default):
+#   default      → Where resources go if you don't specify a namespace
+#                  (BAD practice in enterprise — always specify a namespace)
+#   kube-system  → All K8s control plane components (API server, CoreDNS, etc.)
+#   kube-public  → Publicly readable data (cluster bootstrap info)
+#   kube-node-lease → Node heartbeat objects (kubelet sends these to indicate health)
+#
+# THIS FILE CREATES OUR ENTERPRISE-STYLE NAMESPACE LAYOUT.
+# =============================================================================
+
+# ─── NAMESPACE: applications ──────────────────────────────────────────────────
+# Where our application workloads live.
+# In real enterprise, you'd have separate namespaces per application or team.
+# Here we consolidate for learning, then learn the separation later.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: applications
+  # Labels on namespaces are used by:
+  #   - NetworkPolicy selectors (allow traffic between labeled namespaces)
+  #   - OPA Gatekeeper / Kyverno policies (enforce rules on specific namespaces)
+  #   - Monitoring tools (scrape metrics from pods in labeled namespaces)
+  labels:
+    # environment label: CRITICAL in enterprise for policy enforcement.
+    # OPA Gatekeeper rules can say: "enforce resource limits in env=production"
+    environment: development
+    # team: tracks which team owns this namespace (for billing, alerting)
+    team: platform-engineering
+    # managed-by: documents what tool manages this resource
+    # In real enterprise: this would be "argocd", "flux", or "terraform"
+    managed-by: kubectl
+
+  # Annotations are non-identifying metadata (not used for selection/filtering)
+  # Used for human-readable information and tool integrations
+  annotations:
+    # Document what this namespace is for — helps new engineers understand context
+    description: "Application workloads for learning K8s. In enterprise, split by service."
+    # Owner email for incident response (PagerDuty, Slack webhook configs)
+    owner: "platform-team@company.com"
+    # Link to internal wiki / runbook for this namespace
+    documentation: "https://wiki.internal/k8s/applications-namespace"
+
+---
+# ─── NAMESPACE: monitoring ────────────────────────────────────────────────────
+# Dedicated namespace for observability tools.
+# Separating monitoring ensures:
+#   1. Resource quotas don't compete with application workloads
+#   2. RBAC can give SREs full access to monitoring without touching app configs
+#   3. Prometheus pods can be configured to scrape other namespaces via NetworkPolicy
+#
+# Enterprise monitoring stack in this namespace would include:
+#   - Prometheus (metrics collection)
+#   - Grafana (dashboards)
+#   - Alertmanager (routing alerts to PagerDuty/Slack)
+#   - Loki (log aggregation)
+#   - Tempo / Jaeger (distributed tracing)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    environment: development
+    team: sre-team
+    managed-by: kubectl
+    # This label is used by Prometheus's namespace selector to scrape pods
+    prometheus-scrape: "true"
+  annotations:
+    description: "Monitoring stack: Prometheus, Grafana, Alertmanager"
+    owner: "sre-team@company.com"
+
+---
+# ─── NAMESPACE: security ──────────────────────────────────────────────────────
+# Highly privileged namespace for security-critical components.
+# In enterprise, this namespace has the most RESTRICTIVE RBAC:
+#   - Almost no one has write access
+#   - Changes require pull request approval
+#   - Audit logging is fully enabled
+#
+# Components that live here:
+#   - HashiCorp Vault (secrets management)
+#   - cert-manager (TLS certificate automation)
+#   - OPA Gatekeeper / Kyverno (policy enforcement)
+#   - Falco (runtime threat detection)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security
+  labels:
+    environment: development
+    team: security-team
+    managed-by: kubectl
+    # Highly restricted — used by NetworkPolicy to limit ingress
+    restricted: "true"
+  annotations:
+    description: "Security tooling: cert-manager, Vault agent injector"
+    owner: "security-team@company.com"
+
+---
+# ─── NAMESPACE: ingress-system ────────────────────────────────────────────────
+# Where the Ingress Controller lives.
+# The Ingress Controller is the "front door" of the cluster — it receives
+# external HTTP/HTTPS traffic and routes it to the correct Service.
+#
+# WHY A SEPARATE NAMESPACE?
+#   - The ingress controller runs with elevated privileges (binds to port 80/443)
+#   - It needs to watch Ingress resources across ALL namespaces
+#   - Isolating it limits the blast radius if it's compromised
+#
+# In enterprise on AWS: AWS Load Balancer Controller lives here
+# In enterprise on GCP: GKE Ingress Controller lives here
+# On-premises: NGINX Ingress Controller or Traefik lives here
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-system
+  labels:
+    environment: development
+    team: platform-engineering
+    managed-by: kubectl
+  annotations:
+    description: "Ingress controllers: NGINX, Traefik, or cloud-native LBs"
+    owner: "platform-team@company.com"
+
+---
+# ─── NAMESPACE: staging ───────────────────────────────────────────────────────
+# Staging environment within the SAME cluster.
+# In large enterprise, staging would be a SEPARATE cluster.
+# For learning, we use namespaces to simulate the environment concept.
+#
+# This teaches you the pattern: deploy the SAME manifests to different
+# namespaces by only changing the namespace reference.
+# In real GitOps (ArgoCD/Flux), you have separate overlays per environment.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    environment: staging
+    team: platform-engineering
+    managed-by: kubectl
+  annotations:
+    description: "Staging environment for pre-production validation"
+    owner: "platform-team@company.com"
