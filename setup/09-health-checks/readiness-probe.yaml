@@ -1,18 +1,27 @@
 # =============================================================================
-# FILE: 09-health-checks/readiness-probe.yaml
-# PURPOSE: Minimal example focused on readiness semantics.
+# FILE:    readiness-probe.yaml
+# KIND:    Deployment
+# PURPOSE: Isolate readinessProbe behavior so the learner can understand how
+#          Kubernetes decides whether a pod should receive traffic.
+# WHEN:    setup/09-health-checks - after livenessProbe basics.
+# ENTERPRISE EQUIVALENT: Production Services, load balancers, and service mesh
+#                        proxies use readiness to avoid routing traffic to pods
+#                        that are alive but not ready.
 # =============================================================================
 
 apiVersion: apps/v1
 kind: Deployment
+
 metadata:
   name: readiness-probe-demo
   namespace: applications
   labels:
     app: readiness-probe-demo
+    app.kubernetes.io/component: health-checks
 
 spec:
   replicas: 1
+
   selector:
     matchLabels:
       app: readiness-probe-demo
@@ -26,9 +35,20 @@ spec:
       containers:
         - name: nginx
           image: nginx:1.25.4
+          imagePullPolicy: IfNotPresent
+
           ports:
             - name: http
               containerPort: 80
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
           readinessProbe:
             httpGet:
               path: /
@@ -37,4 +57,13 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
             timeoutSeconds: 3
+            # Readiness is allowed to require more than one success.
+            # This avoids routing traffic after one lucky response from a flaky app.
             successThreshold: 2
+
+# =============================================================================
+# KEY IDEA
+#
+# Readiness failure does not restart the container. It removes the pod from
+# Service endpoints so traffic stops while the application recovers.
+# =============================================================================

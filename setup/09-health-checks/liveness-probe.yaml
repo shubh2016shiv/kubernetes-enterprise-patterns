@@ -1,18 +1,27 @@
 # =============================================================================
-# FILE: 09-health-checks/liveness-probe.yaml
-# PURPOSE: Minimal example focused on liveness semantics.
+# FILE:    liveness-probe.yaml
+# KIND:    Deployment
+# PURPOSE: Isolate livenessProbe behavior so the learner can understand when
+#          Kubernetes restarts a broken container.
+# WHEN:    setup/09-health-checks - after startupProbe basics.
+# ENTERPRISE EQUIVALENT: Production services use forgiving liveness probes that
+#                        detect unrecoverable application failure without
+#                        restarting pods for temporary dependency outages.
 # =============================================================================
 
 apiVersion: apps/v1
 kind: Deployment
+
 metadata:
   name: liveness-probe-demo
   namespace: applications
   labels:
     app: liveness-probe-demo
+    app.kubernetes.io/component: health-checks
 
 spec:
   replicas: 1
+
   selector:
     matchLabels:
       app: liveness-probe-demo
@@ -26,14 +35,34 @@ spec:
       containers:
         - name: nginx
           image: nginx:1.25.4
+          imagePullPolicy: IfNotPresent
+
           ports:
             - name: http
               containerPort: 80
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
           livenessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 15
+            # Give the container a short grace period before checking liveness.
+            initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
             timeoutSeconds: 5
+
+# =============================================================================
+# KEY IDEA
+#
+# Liveness failure restarts the container. Do not make liveness depend on
+# external systems such as databases, because that can restart every pod during
+# a dependency outage and make recovery worse.
+# =============================================================================

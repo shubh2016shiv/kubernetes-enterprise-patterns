@@ -1,19 +1,27 @@
 # =============================================================================
-# FILE: 09-health-checks/startup-probe.yaml
-# PURPOSE: Isolate startupProbe behavior so the learner can study it without
-#          mixing it with liveness and readiness first.
+# FILE:    startup-probe.yaml
+# KIND:    Deployment
+# PURPOSE: Isolate startupProbe behavior so the learner can understand how
+#          Kubernetes protects slow-starting applications.
+# WHEN:    setup/09-health-checks - read before liveness and readiness probes.
+# ENTERPRISE EQUIVALENT: Java, .NET, and ML services on EKS, GKE, and AKS often
+#                        need generous startup probes while loading frameworks,
+#                        caches, or model artifacts.
 # =============================================================================
 
 apiVersion: apps/v1
 kind: Deployment
+
 metadata:
   name: startup-probe-demo
   namespace: applications
   labels:
     app: startup-probe-demo
+    app.kubernetes.io/component: health-checks
 
 spec:
   replicas: 1
+
   selector:
     matchLabels:
       app: startup-probe-demo
@@ -27,13 +35,34 @@ spec:
       containers:
         - name: nginx
           image: nginx:1.25.4
+          imagePullPolicy: IfNotPresent
+
           ports:
             - name: http
               containerPort: 80
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
           startupProbe:
             httpGet:
               path: /
               port: http
+            # Maximum startup window = failureThreshold * periodSeconds.
+            # Here: 30 * 5 = 150 seconds before Kubernetes restarts the container.
             periodSeconds: 5
             failureThreshold: 30
             timeoutSeconds: 3
+
+# =============================================================================
+# KEY IDEA
+#
+# While startupProbe is still failing, Kubernetes suppresses liveness and
+# readiness checks. This prevents slow-but-healthy applications from being
+# restarted before they finish booting.
+# =============================================================================

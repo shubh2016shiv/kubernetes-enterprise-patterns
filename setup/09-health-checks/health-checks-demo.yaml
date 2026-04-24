@@ -1,48 +1,31 @@
 # =============================================================================
-# FILE: 09-health-checks/health-checks-demo.yaml
-# PURPOSE: Comprehensive demonstration of ALL THREE probe types in Kubernetes.
-#          The most tested topic in K8s interviews after Deployments/Services.
-#
-# THE THREE PROBE TYPES:
-#
-#   ┌─────────────────┬──────────────────────────────┬──────────────────────┐
-#   │ Probe           │ Question it answers           │ Action on failure    │
-#   ├─────────────────┼──────────────────────────────┼──────────────────────┤
-#   │ startupProbe    │ Has the app STARTED?          │ Restart the container│
-#   │ livenessProbe   │ Is the app still ALIVE?       │ Restart the container│
-#   │ readinessProbe  │ Is the app READY for traffic? │ Remove from Service  │
-#   └─────────────────┴──────────────────────────────┴──────────────────────┘
-#
-# STARTUP PROBE — The Newer, Often Forgotten One (added in K8s 1.16):
-#   Without startupProbe: you set a long initialDelaySeconds on livenessProbe
-#   to give slow-starting apps time to boot. But this means if the app crashes
-#   AFTER starting, you wait that entire delay before restarting it.
-#
-#   With startupProbe: K8s DISABLES liveness and readiness checks while
-#   startupProbe is running. Once startupProbe succeeds, liveness and
-#   readiness take over. Now you can have:
-#     - startupProbe: generous timeout for slow startup (e.g., 300s for Java)
-#     - livenessProbe: aggressive checking once running (e.g., every 10s)
-#
-#   REAL EXAMPLE: A Java Spring Boot app with 90-second startup time.
-#   Without startupProbe: set initialDelay=120s on liveness
-#     → If app crashes after startup, waits 120s before restart (slow recovery)
-#   With startupProbe:
-#     → 180 second window to start (failureThreshold × periodSeconds = 18 × 10)
-#     → After started: liveness checks every 10s (fast crash detection)
+# FILE:    health-checks-demo.yaml
+# KIND:    Deployment, Service
+# PURPOSE: Demonstrate startup, liveness, and readiness probes together, then
+#          expose readiness behavior through Service endpoints.
+# WHEN:    setup/09-health-checks - after reading the three focused probe files.
+# ENTERPRISE EQUIVALENT: Real workloads on EKS, GKE, and AKS combine probes with
+#                        Services, load balancers, and centralized logs so both
+#                        Kubernetes and humans can understand application state.
 # =============================================================================
 
 apiVersion: apps/v1
 kind: Deployment
+
 metadata:
   name: probes-demo
   namespace: applications
   labels:
+    app: probes-demo
     app.kubernetes.io/name: probes-demo
     app.kubernetes.io/component: health-checks-demo
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
+  annotations:
+    description: "Deployment that demonstrates startup, liveness, and readiness probes."
 
 spec:
   replicas: 2
+
   selector:
     matchLabels:
       app: probes-demo
@@ -51,6 +34,7 @@ spec:
     metadata:
       labels:
         app: probes-demo
+        tier: frontend
 
     spec:
       containers:
@@ -64,130 +48,95 @@ spec:
 
           resources:
             requests:
-              cpu: "100m"
-              memory: "128Mi"
+              cpu: "75m"
+              memory: "96Mi"
             limits:
               cpu: "250m"
-              memory: "256Mi"
+              memory: "192Mi"
 
-          # ── STARTUP PROBE ──────────────────────────────────────────────────
-          # Runs FIRST. Liveness and Readiness are disabled until this passes.
-          # Use for slow-starting applications.
-          #
-          # Maximum startup time = failureThreshold × periodSeconds
-          # Here: 30 × 5 = 150 seconds allowed for startup
-          # nginx starts in ~1 second, so this passes very quickly.
-          # For slow Java apps: failureThreshold=60, periodSeconds=5 → 300s
           startupProbe:
             httpGet:
-              path: /        # nginx returns 200 at /
-              port: http     # uses the named port "http" from ports section
-            # How often to check during startup phase (not too often — it's starting)
-            periodSeconds: 5
-            # How many failures before giving up and restarting
-            failureThreshold: 30
-            # How long to wait for the probe to succeed (per attempt)
-            timeoutSeconds: 3
-            # No initialDelaySeconds needed with startupProbe —
-            # It starts checking immediately but allows 150s to eventually succeed.
-
-          # ── LIVENESS PROBE ─────────────────────────────────────────────────
-          # Runs AFTER startupProbe succeeds. Checks if app is still responsive.
-          # Failure = container is restarted (not the whole pod, just the container)
-          #
-          # GOOD LIVENESS CHECKS:
-          #   - "Am I responsive to HTTP requests?" (httpGet)
-          #   - "Can I connect to my dependencies?" (exec script)
-          # BAD LIVENESS CHECKS:
-          #   - Checking if database is up → if DB goes down, ALL pods restart
-          #     → Cascading failure (the "death spiral" anti-pattern)
-          #   - Anything that can fail for EXTERNAL reasons beyond the app
-          livenessProbe:
-            httpGet:
-              path: /        # Application's own health endpoint
-              port: http
-              # httpHeaders: Send custom headers with the probe (for auth, routing)
-              # Useful when your health endpoint requires an API key
-              # httpHeaders:
-              #   - name: X-Health-Check
-              #     value: "kubernetes-liveness"
-            # Wait 0 seconds after startup probe succeeds (already know app started)
-            initialDelaySeconds: 0
-            # Check every 10 seconds
-            periodSeconds: 10
-            # 3 consecutive failures → restart the container
-            failureThreshold: 3
-            # 10-second timeout (liveness should be fast — no DB calls!)
-            timeoutSeconds: 5
-            # 1 consecutive success after failure restores liveness
-            successThreshold: 1
-
-          # ── READINESS PROBE ────────────────────────────────────────────────
-          # Runs concurrently with liveness after startup. Checks traffic-readiness.
-          # Failure = pod removed from Service endpoints (no traffic) but NOT restarted.
-          #
-          # USE CASES FOR READINESS FAILURES:
-          #   - App is warming up caches (technically alive but serving slow)
-          #   - Circuit breaker is open (app refusing traffic intentionally)
-          #   - Dependency temporarily unavailable (unlike liveness, readiness CAN
-          #     check dependencies — the app just stops receiving traffic, not dies)
-          #   - Graceful shutdown (app marks itself not-ready before processing stops)
-          #
-          # GRACEFUL SHUTDOWN PATTERN:
-          #   1. preStop hook runs (sleep 5 to let LB update)
-          #   2. App marks itself not-ready (readiness check fails)
-          #   3. App waits for in-flight requests to complete
-          #   4. App exits cleanly
-          #   Result: No dropped requests during pod termination
-          readinessProbe:
-            httpGet:
+              # Startup asks: has the application finished booting?
               path: /
               port: http
-            # Check sooner than liveness — we want traffic to start ASAP
-            initialDelaySeconds: 0
+            # Maximum startup window = 30 * 5 = 150 seconds.
+            # nginx starts quickly, but the large window teaches the slow-app pattern.
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 3
+
+          livenessProbe:
+            httpGet:
+              # Liveness asks: is the application process still recoverable?
+              path: /
+              port: http
+            # After startup succeeds, check every 10 seconds.
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          readinessProbe:
+            httpGet:
+              # Readiness asks: should this pod receive Service traffic?
+              path: /
+              port: http
             periodSeconds: 5
             failureThreshold: 3
             timeoutSeconds: 3
-            # Require 2 consecutive successes before marking Ready
-            # (extra caution: avoid marking Ready on a single flaky success)
             successThreshold: 2
 
-          # ── EXEC PROBE EXAMPLE ─────────────────────────────────────────────
-          # Alternative: run a command inside the container for health checking.
-          # Useful when HTTP isn't available (gRPC, raw TCP, file-based checks).
-          #
-          # Example for a database pod:
-          # livenessProbe:
-          #   exec:
-          #     command:
-          #       - /bin/sh
-          #       - -c
-          #       - pg_isready -U postgres -h localhost
-          #   periodSeconds: 10
+---
+# =============================================================================
+# FILE:    health-checks-demo.yaml
+# KIND:    Service
+# PURPOSE: Provide a stable endpoint list so readiness changes can be observed
+#          through Kubernetes Service endpoints.
+# WHEN:    setup/09-health-checks - applied with the probes-demo Deployment.
+# ENTERPRISE EQUIVALENT: In production, this Service may sit behind an ALB, GCLB,
+#                        Application Gateway, or service mesh. Readiness still
+#                        controls which pods are safe traffic targets.
+# =============================================================================
 
-          # ── TCP SOCKET PROBE EXAMPLE ───────────────────────────────────────
-          # Opens a TCP connection to the specified port.
-          # If the connection succeeds → healthy.
-          # Simpler than HTTP when the app doesn't have an HTTP health endpoint.
-          #
-          # Example:
-          # livenessProbe:
-          #   tcpSocket:
-          #     port: 8080
-          #   periodSeconds: 10
+apiVersion: v1
+kind: Service
 
-# ─── AFTER APPLYING — OBSERVE PROBE BEHAVIOR ─────────────────────────────────
-# kubectl apply -f 09-health-checks/health-checks-demo.yaml
-# kubectl describe pod -n applications -l app=probes-demo
-#   → Look at the "Conditions:" section (shows Ready, ContainersReady, etc.)
-#   → Look at the "Events:" section (shows probe failures if any)
+metadata:
+  name: probes-demo-service
+  namespace: applications
+  labels:
+    app: probes-demo
+    app.kubernetes.io/name: probes-demo
+    app.kubernetes.io/component: health-checks-service
+    app.kubernetes.io/part-of: kubernetes-fundamentals-lab
+  annotations:
+    description: "ClusterIP Service used to observe readiness through endpoints."
+
+spec:
+  type: ClusterIP
+
+  selector:
+    # This must match the pod template labels above. If it does not, the Service
+    # will exist but have no endpoints.
+    app: probes-demo
+
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+
+# =============================================================================
+# WHAT TO OBSERVE
 #
-# SIMULATE LIVENESS FAILURE:
-#   kubectl exec -it <pod> -n applications -- nginx -s stop
-#   kubectl get pod -n applications -l app=probes-demo -w
-#   → Watch: RESTARTS count increases as K8s restarts the crashed container
+# kubectl get pods -n applications -l app=probes-demo
+#   Shows READY 0/1 until readiness succeeds.
 #
-# SIMULATE READINESS FAILURE:
-#   kubectl exec -it <pod> -n applications -- rm /usr/share/nginx/html/index.html
-#   → Health check to / returns 404 → readiness fails → removed from endpoints
-#   kubectl get endpoints -n applications   → pod IP disappears
+# kubectl get endpoints probes-demo-service -n applications
+#   Shows pod IPs only for pods that are Ready.
+#
+# kubectl describe pod <pod-name> -n applications
+#   Shows Conditions and Events that explain probe behavior.
+#
+# kubectl logs <pod-name> -n applications
+#   Shows application logs. This is human visibility, not a Kubernetes decision.
+# =============================================================================
