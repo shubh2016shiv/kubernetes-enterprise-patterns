@@ -1,0 +1,160 @@
+# =============================================================================
+# FILE: 06-configmaps-secrets/pod-using-config.yaml
+# PURPOSE: Shows ALL methods of consuming ConfigMaps and Secrets in a Pod.
+#          This is the "connector" file — showing how config flows to your app.
+#
+# THE FOUR CONSUMPTION PATTERNS (all shown in this file):
+#   1. ConfigMap → individual env vars (valueFrom.configMapKeyRef)
+#   2. Secret    → individual env vars (valueFrom.secretKeyRef)
+#   3. ConfigMap → ALL keys as env vars (envFrom.configMapRef)
+#   4. ConfigMap → Volume mount (files inside container filesystem)
+# =============================================================================
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-full-config-demo
+  namespace: applications
+  labels:
+    app: nginx-config-demo
+    tier: frontend
+
+spec:
+  containers:
+    - name: nginx
+      image: nginx:1.25.4
+      imagePullPolicy: IfNotPresent
+
+      ports:
+        - name: http
+          containerPort: 80
+
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "250m"
+          memory: "256Mi"
+
+      # ── METHOD 1: Individual keys from ConfigMap → env vars ──────────────
+      # Use when: you want to pull specific keys from a ConfigMap
+      # Each key becomes an env var with the name you specify
+      env:
+        # From ConfigMap: specific key reference
+        - name: APP_ENVIRONMENT        # Name of the env var INSIDE the container
+          valueFrom:
+            configMapKeyRef:
+              name: nginx-app-config  # ConfigMap name
+              key: APP_ENV            # Key from the ConfigMap's data section
+              # optional: false (default) → pod FAILS if key doesn't exist
+              # optional: true            → pod starts even if key missing (gets empty string)
+              optional: false
+
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: nginx-app-config
+              key: LOG_LEVEL
+
+        # From Secret: specific key reference
+        # Secrets are referenced identically to ConfigMaps but use secretKeyRef
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: nginx-app-secrets  # Secret name
+              key: DB_PASSWORD         # Key from the Secret's data section
+              # K8s decodes from base64 automatically — your app sees plain text
+
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: nginx-app-secrets
+              key: DB_USERNAME
+
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: nginx-app-secrets
+              key: REDIS_URL
+
+      # ── METHOD 2: ALL keys from ConfigMap → env vars (envFrom) ──────────
+      # Use when: the ConfigMap is purpose-built for this app
+      #           and you want all keys without listing each one.
+      # RISK: If ConfigMap adds a new key, it automatically becomes an env var.
+      #       Could cause conflicts with existing env var names.
+      # ENTERPRISE PREFERENCE: Explicit (method 1) > envFrom — easier to audit
+      envFrom:
+        - configMapRef:
+            name: nginx-app-config
+            optional: false   # Pod fails if ConfigMap doesn't exist
+          # prefix: "NGINX_"  # Optional: add prefix to all key names
+          #                   # Useful to avoid naming conflicts
+
+      # ── METHOD 3: ConfigMap → Volume mount (files in filesystem) ─────────
+      # Use when:
+      #   - Config is a file (nginx.conf, application.properties)
+      #   - Config needs live-update WITHOUT pod restart (volume updates auto)
+      #   - Config is too large for env vars (K8s limits env var total size)
+      #
+      # HOW IT WORKS:
+      #   Each key in the ConfigMap becomes a FILE in the mounted directory.
+      #   The key is the filename, the value is the file content.
+      #   So "nginx.conf" key → /etc/nginx/nginx.conf file inside the container.
+      volumeMounts:
+        # Mount the custom nginx.conf file
+        - name: nginx-config-volume      # Refers to volumes section below
+          mountPath: /etc/nginx/conf.d   # Directory inside container
+          # readOnly: true is recommended for config files
+          # Prevents the app from accidentally modifying its own config
+          readOnly: true
+
+        # Mount secrets as files (recommended over env vars for secrets)
+        # Files update live when Secret is updated (within ~30-60s)
+        # Env vars do NOT update until pod restarts
+        - name: secrets-volume
+          mountPath: /etc/app/secrets    # App reads files from this directory
+          readOnly: true                 # ALWAYS readonly for secret volumes
+
+  # ── VOLUME DEFINITIONS ─────────────────────────────────────────────────────
+  volumes:
+    # Volume backed by the ConfigMap
+    - name: nginx-config-volume
+      configMap:
+        name: nginx-app-config          # Source ConfigMap
+        # items: Map specific keys to specific filenames
+        # Without items: ALL keys become files in the mountPath
+        # With items: only listed keys are mounted, with custom filenames
+        items:
+          - key: nginx.conf             # ConfigMap key
+            path: default.conf         # Filename in the container filesystem
+                                       # Result: /etc/nginx/conf.d/default.conf
+
+          - key: app-settings.properties
+            path: app-settings.properties
+            # mode: Unix file permissions (0644 = rw-r--r--)
+            # Default is 0644, which is appropriate for config files
+            mode: 0644
+
+    # Volume backed by the Secret
+    # Each Secret key becomes a file containing the DECODED value
+    - name: secrets-volume
+      secret:
+        secretName: nginx-app-secrets
+        # items: Mount only specific keys (security: don't mount all secrets)
+        items:
+          - key: DB_USERNAME
+            path: db-username           # /etc/app/secrets/db-username
+          - key: DB_PASSWORD
+            path: db-password           # /etc/app/secrets/db-password
+            mode: 0400                 # 0400 = r-------- (only owner can read)
+                                       # Extra protection for password files
+          - key: DB_CONNECTION_STRING
+            path: db-connection         # /etc/app/secrets/db-connection
+
+# ─── HOW TO VERIFY AFTER APPLYING ────────────────────────────────────────────
+# kubectl apply -f 06-configmaps-secrets/pod-using-config.yaml
+# kubectl exec nginx-full-config-demo -n applications -- env | grep -E "APP_|LOG_|DB_|REDIS_"
+# kubectl exec nginx-full-config-demo -n applications -- ls /etc/app/secrets/
+# kubectl exec nginx-full-config-demo -n applications -- cat /etc/nginx/conf.d/default.conf
+# kubectl exec nginx-full-config-demo -n applications -- cat /etc/app/secrets/db-password

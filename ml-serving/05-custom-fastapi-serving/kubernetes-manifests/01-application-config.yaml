@@ -1,0 +1,28 @@
+# =============================================================================
+# FILE: ml-serving/05-custom-fastapi-serving/kubernetes-manifests/01-application-config.yaml
+# PURPOSE: Runtime configuration for the custom FastAPI inference service.
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wine-quality-fastapi-config
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: wine-quality-fastapi-serving
+    app.kubernetes.io/component: config
+data:
+  # Stage 1.0 - Application identity presented in FastAPI docs and responses.
+  APP_VERSION: "1.0.0"
+  APP_NAME: "wine-quality-fastapi-serving"
+
+  # Stage 1.1 - Model artifact locations inside the image.
+  # The custom FastAPI path bundles the small model into the image so local
+  # learners can focus on the app-serving mechanics. The KServe path in this
+  # repository teaches externalized artifact storage separately.
+  MODEL_PATH: "/models/model.pkl"
+  MODEL_METADATA_PATH: "/models/model_metadata.json"
+  VALIDATE_CHECKSUM: "true"
+
+  # Stage 1.2 - Browser access policy for the lab.
+  ALLOWED_ORIGINS: "*"

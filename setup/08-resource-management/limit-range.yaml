@@ -1,0 +1,46 @@
+# =============================================================================
+# FILE: 08-resource-management/limit-range.yaml
+# PURPOSE: Set default requests/limits plus min/max boundaries per container.
+#
+# WHY THIS IS A SEPARATE FILE:
+#   ResourceQuota is the namespace ceiling. LimitRange is the per-workload
+#   default and boundary policy. Keeping them separate mirrors how platform
+#   teams reason about tenant-level policy vs workload-level defaults.
+# =============================================================================
+
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: applications-limit-range
+  namespace: applications
+  labels:
+    app.kubernetes.io/component: resource-management
+  annotations:
+    description: "Default and min/max resource bounds for pods in applications namespace"
+
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "256Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      max:
+        cpu: "2"
+        memory: "1Gi"
+      min:
+        cpu: "10m"
+        memory: "32Mi"
+
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: "2Gi"
+
+    - type: PersistentVolumeClaim
+      max:
+        storage: "10Gi"
+      min:
+        storage: "1Gi"

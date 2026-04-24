@@ -1,0 +1,126 @@
+# =============================================================================
+# FILE: ml-serving/05-custom-fastapi-serving/kubernetes-manifests/02-inference-deployment.yaml
+# PURPOSE: Deploy the custom FastAPI inference service on Kubernetes.
+#
+# ENTERPRISE ML ARCHITECTURE PATTERNS IN THIS FILE:
+#
+#   1. CLEAR CONTROLLER OWNERSHIP
+#      The Deployment manages rollout, self-healing, and replica count.
+#
+#   2. RESOURCE TUNING FOR ML
+#      ML workloads are CPU/Memory intensive, not I/O intensive.
+#      - Requests: Must be high enough to load the model into memory.
+#      - Limits: CPU limits should match expected concurrency (e.g., 2 cores =
+#        2 concurrent fast requests or 1 heavy request + background threads).
+#      - Memory Limits: MUST account for Python's memory spikes during batch inference.
+#
+#   3. READINESS vs LIVENESS
+#      - Liveness: Hits /health immediately (process is up).
+#      - Readiness: Hits /ready and waits (model is still loading from disk).
+#        Crucial because large models take 10-60s to deserialize.
+#
+# LOCAL LEARNING TRADEOFF:
+#   This custom path keeps the model artifact inside the image so the learner
+#   can focus on custom runtime behavior. The KServe path in this repository is
+#   where externalized artifact delivery is taught.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wine-quality-fastapi-serving
+  namespace: applications
+  labels:
+    app: wine-quality-fastapi-serving
+    tier: backend
+  annotations:
+    description: "FastAPI server serving sklearn wine quality model"
+
+spec:
+  # Base replicas. The HPA (Horizontal Pod Autoscaler) will scale this dynamically later.
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: wine-quality-fastapi-serving
+
+  # Rolling update strategy tuned for ML workloads
+  # Large ML models take time to load and consume lots of node memory.
+  # If maxSurge is too high (e.g., 100%), K8s might try to schedule 10 new heavy
+  # pods at once, causing node OutOfMemory (OOM) errors.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1       # Spin up exactly 1 new pod at a time
+      maxUnavailable: 0 # Never drop below desired replica count during rollout
+
+  template:
+    metadata:
+      labels:
+        app: wine-quality-fastapi-serving
+      annotations:
+        # Standard prometheus scraping annotations
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+
+    spec:
+      # Ensure pods are spread across different nodes for High Availability
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: wine-quality-fastapi-serving
+
+      # ─── MAIN INFERENCE CONTAINER ────────────────────────────────────────────
+      containers:
+        - name: fastapi-server
+          # The image we built in build-and-load.sh
+          image: wine-quality-fastapi-serving:1.0.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8000
+
+          envFrom:
+            - configMapRef:
+                name: wine-quality-fastapi-config
+
+          # ── RESOURCES (Critical for ML) ──────────────────────────────────────
+          # Requests: What K8s guarantees. Must be enough to load the model.
+          # Limits: Hard cap. If exceeded → OOMKilled.
+          resources:
+            requests:
+              cpu: "500m"       # Half a core
+              memory: "256Mi"
+            limits:
+              cpu: "2"          # Allow bursting up to 2 cores for inference
+              memory: "512Mi"   # Must account for batch payload deserialization
+
+          # ── HEALTH CHECKS ────────────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            # Start checking immediately (process boots fast)
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            # Check frequently. Will return 503 until model is fully loaded.
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 12  # Allow 60s (12 * 5s) for model to load
+
+          # Graceful shutdown: give in-flight inferences time to finish
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]

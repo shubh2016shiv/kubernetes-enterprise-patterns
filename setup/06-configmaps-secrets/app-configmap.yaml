@@ -1,0 +1,130 @@
+# =============================================================================
+# FILE: 06-configmaps-secrets/app-configmap.yaml
+# PURPOSE: ConfigMap — externalized non-sensitive application configuration.
+#
+# THE 12-FACTOR APP — CONFIG PRINCIPLE:
+#   Configuration that varies between environments (dev, staging, prod)
+#   must be stored outside the application container.
+#   A ConfigMap is Kubernetes' mechanism for non-sensitive config.
+#
+# WHAT GOES IN A CONFIGMAP (never Secrets):
+#   ✓ Log levels (debug, info, warn, error)
+#   ✓ Feature flags (enable-new-ui: "true")
+#   ✓ Application ports, timeouts, retry counts
+#   ✓ External service URLs (non-sensitive)
+#   ✓ Entire configuration files (nginx.conf, application.properties)
+#
+# WHAT DOES NOT BELONG IN A CONFIGMAP:
+#   ✗ Passwords
+#   ✗ API keys / tokens
+#   ✗ TLS certificates / private keys
+#   ✗ Database connection strings with credentials
+#   → Use Secrets for all of the above
+#
+# THREE WAYS TO CONSUME A CONFIGMAP IN A POD:
+#   1. As environment variables (individual key-value pairs → env vars)
+#   2. As a volume (mount config file INTO the container filesystem)
+#   3. As envFrom (all keys become environment variables at once)
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-app-config
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: nginx
+    app.kubernetes.io/component: configuration
+  annotations:
+    description: "Application configuration for nginx demo service"
+
+# data: The actual configuration key-value pairs.
+# Keys: alphanumeric + hyphens/underscores/dots. NO SLASHES (that's for files).
+# Values: any string, including multi-line strings (using | for literal block)
+data:
+  # ── SIMPLE KEY-VALUE PAIRS (become environment variables) ─────────────────
+  # These will be injected as individual env vars in the pod spec
+  APP_ENV: "development"
+  LOG_LEVEL: "info"
+  MAX_CONNECTIONS: "100"
+  REQUEST_TIMEOUT_MS: "5000"
+  FEATURE_FLAG_NEW_UI: "false"
+  METRICS_PORT: "9090"
+
+  # ── ENTIRE FILE AS A CONFIGMAP VALUE ──────────────────────────────────────
+  # ConfigMap values can be entire file contents.
+  # The key becomes the filename when mounted as a volume.
+  # This is how you inject config files like nginx.conf, app.yaml, etc.
+  #
+  # ENTERPRISE PATTERN: This replaces "baking config into the container image"
+  # You can change this ConfigMap and pods restart with new config —
+  # without rebuilding the Docker image.
+  nginx.conf: |
+    # This is an actual nginx configuration file stored in a ConfigMap.
+    # When mounted as a volume, it replaces /etc/nginx/nginx.conf in the container.
+
+    user  nginx;
+    worker_processes  auto;  # auto = use all available CPU cores
+
+    # error_log level is controlled by our LOG_LEVEL configmap value
+    # (in practice, you'd use a script to template this from env vars)
+    error_log  /var/log/nginx/error.log notice;
+    pid        /var/run/nginx.pid;
+
+    events {
+        # worker_connections: max simultaneous connections per worker
+        # Total max connections = worker_processes * worker_connections
+        worker_connections  1024;
+    }
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+
+        # log_format: structured JSON logging (enterprise standard)
+        # JSON logs are parsed by log aggregators (ELK, Loki, CloudWatch)
+        log_format json_combined escape=json '{'
+            '"timestamp":"$time_iso8601",'
+            '"method":"$request_method",'
+            '"uri":"$request_uri",'
+            '"status":$status,'
+            '"bytes_sent":$bytes_sent,'
+            '"request_time":$request_time,'
+            '"upstream_addr":"$upstream_addr",'
+            '"x_forwarded_for":"$http_x_forwarded_for"'
+        '}';
+
+        access_log  /var/log/nginx/access.log  json_combined;
+
+        sendfile        on;
+        keepalive_timeout  65;
+
+        server {
+            listen       80;
+            server_name  _;
+
+            # Health check endpoint (used by readiness probe and load balancers)
+            location /health {
+                access_log off;      # Don't log health checks (noise reduction)
+                return 200 '{"status":"healthy"}';
+                add_header Content-Type application/json;
+            }
+
+            # Main application
+            location / {
+                root   /usr/share/nginx/html;
+                index  index.html index.htm;
+            }
+        }
+    }
+
+  # Another configuration file example: app-specific settings
+  app-settings.properties: |
+    # Application-level settings
+    # This file would be read by a Java/Node/Python app during startup
+    server.port=8080
+    server.timeout=30000
+    cache.enabled=true
+    cache.ttl.seconds=300
+    database.pool.size=10
+    database.pool.min-idle=5

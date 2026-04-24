@@ -1,389 +1,357 @@
-# Windows WSL2 Setup
+# =============================================================================
+# FILE:    platform-guides/windows-wsl2/README.md
+# PURPOSE: The definitive "I have never touched Kubernetes" guide for Windows
+#          users with Docker Desktop. Covers everything from WSL2 verification
+#          to a running, verified local Kubernetes cluster.
+# MACHINE: Windows 11, 16 GB RAM, RTX 2060 6 GB, Docker Desktop installed.
+# =============================================================================
 
-This is the preferred Windows path for this repository.
+# Windows + WSL2: Your Enterprise Kubernetes Development Environment
 
-The mental model is:
-- Windows is only the host operating system
-- Ubuntu in WSL2 is your real working shell
-- Docker Desktop is the container engine
-- `kind` creates the Kubernetes cluster inside Docker
-- `kubectl` talks to that cluster
+> **Who this guide is for**: You are on Windows. Docker Desktop is installed.
+> You have never run a Kubernetes cluster. By the end of this guide, you will
+> have a real, multi-node Kubernetes cluster running on your laptop, controlled
+> by the same tools that engineers use on AWS, GCP, and Azure every day.
 
-If you remember only one thing, remember this:
+---
 
-**Do Kubernetes work in Ubuntu WSL2, not in PowerShell.**
+## Why WSL2 and Not PowerShell?
 
-## Stage 0.0 - What You Are Building
+Before a single command, you need to understand this:
 
-Before we type commands, understand the stack:
+```
+Enterprise Kubernetes runs on Linux. Every single Kubernetes node —
+whether it is an AWS EC2 instance, a Google Compute Engine VM, or a
+bare-metal server in a data center — runs Linux. The tools (kubectl,
+helm, kind, kubectx, k9s) are Linux-native. The scripts engineers
+write and run in CI/CD pipelines (GitHub Actions, GitLab CI) run on
+Linux runners.
 
-```text
-Windows laptop
-    |
-    v
-WSL2 Ubuntu shell
-    |
-    v
-Docker Desktop engine
-    |
-    v
-kind cluster
-    |
-    v
-kubectl commands
+PowerShell does not exist on any server you will ever SSH into during
+Kubernetes operations. If you learn Kubernetes through PowerShell,
+you are learning on a tool you will never use in production.
+
+WSL2 (Windows Subsystem for Linux 2) gives you a real Linux kernel
+running directly on your Windows hardware. It is not an emulator.
+It shares memory and CPU with Windows natively. Inside WSL2, you have
+a genuine Ubuntu terminal — the same shell environment that runs on
+every enterprise Kubernetes node.
+
+That is why every command in this repository uses Bash, not PowerShell.
 ```
 
-Why this matters:
-- Kubernetes is Linux-first in real enterprise environments.
-- WSL2 makes your laptop behave much more like a Linux server or CI runner.
-- That means the scripts in this repository behave the same way locally and in professional environments.
+---
 
-## Stage 1.0 - Open The Correct Things
+## The Full Architecture — What You Are Building
 
-### Step 1.1 - Start Docker Desktop
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  WINDOWS HOST (16 GB RAM, RTX 2060)                                  │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  WSL2 (Ubuntu 22.04) — Your Linux Shell                     │    │
+│  │                                                              │    │
+│  │   $ kubectl get nodes                                       │    │
+│  │   $ kind create cluster                                     │    │
+│  │   $ helm install ...                                        │    │
+│  │                                                              │    │
+│  │   ↕ talks to Docker Engine via WSL2 integration            │    │
+│  └──────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  Docker Desktop                                              │    │
+│  │                                                              │    │
+│  │   Docker Engine (daemon) ← kind uses this to create nodes   │    │
+│  │                                                              │    │
+│  │   ┌──────────────────────────────────────────────────┐     │    │
+│  │   │  kind Cluster: "learning-cluster"                 │     │    │
+│  │   │                                                   │     │    │
+│  │   │  ┌───────────────────┐  ┌─────────┐  ┌─────────┐│     │    │
+│  │   │  │ control-plane     │  │worker-1 │  │worker-2 ││     │    │
+│  │   │  │ (Docker container)│  │(Docker  │  │(Docker  ││     │    │
+│  │   │  │                   │  │container│  │container││     │    │
+│  │   │  │ kube-apiserver    │  │         │  │         ││     │    │
+│  │   │  │ etcd              │  │kubelet  │  │kubelet  ││     │    │
+│  │   │  │ scheduler         │  │containerd  containerd││     │    │
+│  │   │  │ controller-mgr    │  │kube-proxy  kube-proxy││     │    │
+│  │   │  └───────────────────┘  └─────────┘  └─────────┘│     │    │
+│  │   └──────────────────────────────────────────────────┘     │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
 
-Do this on the Windows side first.
-
-Why:
-- `kind` creates Kubernetes nodes as Docker containers.
-- If Docker Desktop is not running, cluster creation will fail immediately.
-
-What success looks like:
-- Docker Desktop opens normally.
-- It shows the engine is running.
-
-### Step 1.2 - Open Ubuntu, Not PowerShell
-
-Open the Ubuntu app from the Windows Start menu.
-
-Why:
-- This repository uses Bash scripts.
-- The path style, permissions, and tooling behavior must be Linux-like.
-
-### Step 1.3 - Confirm You Are Really In Linux
-
-Run:
-
-```bash
-uname -a
-pwd
-whoami
+kubectl (in WSL2) ──────────────────────────────► kube-apiserver
+                                                   (control-plane node)
 ```
 
-What this teaches:
-- `uname -a` shows Linux kernel details.
-- `pwd` shows your current folder.
-- `whoami` shows your Ubuntu username.
+**Reading the diagram:**
+- WSL2 is your Linux shell. You type commands here.
+- Docker Desktop is the container engine. kind uses it to create "nodes" (which are actually Docker containers that contain a full Kubernetes node stack).
+- The kind cluster has 3 nodes: 1 control plane + 2 workers. These are 3 Docker containers running simultaneously.
+- kubectl is the Kubernetes CLI. You run it in WSL2, it connects to the kube-apiserver inside the control-plane container, and commands propagate from there.
 
-What success looks like:
-- `uname -a` mentions Linux
-- You are inside your Ubuntu home directory, not a Windows prompt
+---
 
-## Stage 2.0 - Move To The Repository From Ubuntu
+## Step 0: Verify You Are Inside WSL2
 
-### Step 2.1 - Go To The Project Folder
+Open Ubuntu from the Windows Start menu (search "Ubuntu"). You should see a Linux terminal prompt, not a `PS C:\>` prompt.
 
-Run:
+Verify:
+```bash
+# This command should output a Linux kernel version string.
+# If you see "Microsoft" in the output, you are in WSL2. Correct.
+uname -r
+
+# Expected output (yours will differ in version numbers):
+#   5.15.167.4-microsoft-standard-WSL2
+```
+
+If you see a PowerShell prompt instead, open the Start menu, search "Ubuntu", and launch it.
+
+---
+
+## Step 1: Verify Docker Desktop Is Running and WSL2-Integrated
 
 ```bash
+# Check that Docker CLI works from inside WSL2.
+# If Docker Desktop is not running, this will fail with a connection error.
+docker version
+
+# What you should see:
+#   Client: Docker Engine - Community
+#    Version:           26.x.x
+#   Server: Docker Desktop
+#    Engine:
+#     Version:          26.x.x
+#
+# The key: BOTH Client AND Server must show. If only Client shows,
+# Docker Desktop is not running. Start it on Windows first.
+```
+
+**If Docker is not integrated with WSL2:**
+1. Open Docker Desktop on Windows.
+2. Click the gear icon → Settings → Resources → WSL Integration.
+3. Toggle ON for your Ubuntu distro.
+4. Click "Apply & Restart".
+5. Close and reopen your Ubuntu terminal.
+6. Run `docker version` again.
+
+---
+
+## Step 2: Configure Docker Desktop Resources for Your Machine
+
+Docker Desktop runs the Kubernetes nodes. It needs enough memory.
+
+Go to: **Docker Desktop → Settings → Resources → Advanced**
+
+Set these values for your 16 GB machine:
+
+```
+Memory:  8 GB    ← Half your RAM. Leaves 8 GB for Windows + WSL2.
+CPUs:    6       ← Leave 2 cores for Windows and other apps.
+Swap:    2 GB    ← Safety buffer for memory spikes during heavy workloads.
+Disk:    60 GB   ← Kind nodes + container images can grow. 60 GB is safe.
+```
+
+> **Why 8 GB for Docker?**
+> A 3-node kind cluster (1 control-plane + 2 workers) consumes roughly 2–3 GB
+> at idle. Your learning workloads on top of that need headroom. 8 GB of 16 GB
+> gives you room to run multiple pods, pull container images, and still keep
+> Windows responsive.
+
+**Disable Docker Desktop's built-in Kubernetes:**
+Docker Desktop → Settings → Kubernetes → **uncheck** "Enable Kubernetes"
+
+> **Why?** We use `kind` instead. If both are enabled, you get two Kubernetes
+> clusters: one called `docker-desktop` and one called `kind-learning-cluster`.
+> Running `kubectl get nodes` would talk to the wrong cluster silently — a
+> very confusing failure mode for a learner. Disable the built-in one.
+
+Click "Apply & Restart" after making all changes.
+
+---
+
+## Step 3: Install Required Tools (Inside WSL2)
+
+> **You only do this once.** After installation, these tools persist inside
+> your WSL2 Ubuntu environment across reboots.
+
+Run the one-shot install script from inside WSL2:
+
+```bash
+# Navigate to the repository
 cd "/mnt/d/Generative AI Portfolio Projects/kubernetes_architure"
-pwd
+
+# Run the installer
+bash setup/00-prerequisites/platform-guides/windows-wsl2/step-by-step-install.sh
 ```
 
-Why this path looks strange:
-- WSL2 mounts your Windows `D:` drive under `/mnt/d`
-- So a Windows path like:
+The script installs, in order:
+1. `kind` — the Kubernetes cluster engine
+2. `kubectl` — the universal Kubernetes CLI
+3. `helm` — the Kubernetes package manager
+4. `kubectx` + `kubens` — fast cluster/namespace switching
+5. `k9s` — the terminal Kubernetes dashboard
 
-```text
-D:\Generative AI Portfolio Projects\kubernetes_architure
-```
-
-becomes:
-
-```text
-/mnt/d/Generative AI Portfolio Projects/kubernetes_architure
-```
-
-What success looks like:
-- `pwd` prints `/mnt/d/Generative AI Portfolio Projects/kubernetes_architure`
-
-## Stage 3.0 - Run The Pre-Check Before Installing Anything
-
-### Step 3.1 - Run The Repository Checker
-
-Run:
+After it finishes, run the prerequisite checker to verify everything:
 
 ```bash
 bash setup/00-prerequisites/check-prerequisites.sh
 ```
 
-Why:
-- We do not guess what is missing.
-- We let the repository tell us the real blockers first.
+---
 
-How to interpret the result:
-- Missing `kind` = hard blocker
-- Missing `helm` = not a blocker for the basic cluster, but important later
-- Missing `kubectx` = optional workflow improvement
-- Missing `k9s` = optional workflow improvement
-
-## Stage 4.0 - Install The Tools
-
-There are two installation paths:
-- system-wide install with `sudo`
-- user-local install into `~/.local/bin`
-
-If you are learning and just want to get moving safely, the user-local path is completely fine.
-
-## Stage 4.1 - System-Wide Install Path
-
-Use this if you are comfortable entering your Ubuntu password for `sudo`.
-
-### Step 4.1.1 - Install Base Utilities
-
-Run:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y curl git ca-certificates
-```
-
-What this does:
-- `apt-get update`: refreshes Ubuntu’s package list
-- `curl`: downloads files from the internet
-- `git`: clones repositories like `kubectx`
-- `ca-certificates`: lets HTTPS downloads verify trusted certificates correctly
-
-### Step 4.1.2 - Install `kind`
-
-Run:
-
-```bash
-[ "$(uname -m)" = "x86_64" ] && ARCH=amd64 || ARCH=arm64
-curl -Lo /tmp/kind "https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-${ARCH}"
-chmod +x /tmp/kind
-sudo mv /tmp/kind /usr/local/bin/kind
-kind version
-```
-
-What each line means:
-- detect your CPU architecture so you download the correct binary
-- download the `kind` binary into `/tmp`
-- make it executable
-- move it into `/usr/local/bin` so Ubuntu can find it as a normal command
-- verify the install
-
-Why `kind` matters most:
-- This repository cannot create the cluster without it.
-
-What success looks like:
-- `kind version` prints something like `kind v0.23.0 ...`
-
-### Step 4.1.3 - Install `helm`
-
-Run:
-
-```bash
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-helm version --short
-```
-
-What this teaches:
-- Helm is the package manager for Kubernetes.
-- Later, the ML serving part of this repository uses Helm-installed platform components.
-
-What success looks like:
-- `helm version --short` prints a version like `v3.x.x+...`
-
-### Step 4.1.4 - Install `kubectx` and `kubens`
-
-Run:
-
-```bash
-sudo git clone https://github.com/ahmetb/kubectx /opt/kubectx || true
-sudo ln -sf /opt/kubectx/kubectx /usr/local/bin/kubectx
-sudo ln -sf /opt/kubectx/kubens /usr/local/bin/kubens
-command -v kubectx
-command -v kubens
-```
-
-What this teaches:
-- `kubectx` switches clusters
-- `kubens` switches namespaces
-- These help prevent confusion once you work with multiple environments
-
-### Step 4.1.5 - Install `k9s`
-
-Run:
-
-```bash
-curl -sS https://webinstall.dev/k9s | bash
-k9s version --short || true
-```
-
-What this teaches:
-- `k9s` is a fast terminal dashboard for Kubernetes
-- It is optional, but it makes cluster exploration much easier
-
-## Stage 4.2 - User-Local Install Path
-
-Use this if:
-- you do not want to install system-wide
-- your `sudo` flow is inconvenient
-- you want a learner-friendly setup owned by your Ubuntu user
-
-This installs tools under `~/.local/bin`.
-
-### Step 4.2.1 - Prepare Your Local CLI Folder
-
-Run:
-
-```bash
-mkdir -p "$HOME/.local/bin" "$HOME/.local/share"
-
-if ! grep -q 'HOME/.local/bin' "$HOME/.bashrc"; then
-  printf '\n# Local CLI tools for Kubernetes learning\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.bashrc"
-fi
-
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-What this does:
-- creates a user-owned `bin` folder
-- teaches Bash to look there for commands
-- avoids needing `sudo` for these tool installs
-
-### Step 4.2.2 - Install `kind`
-
-Run:
-
-```bash
-[ "$(uname -m)" = "x86_64" ] && ARCH=amd64 || ARCH=arm64
-curl -fsSL -o "$HOME/.local/bin/kind" "https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-${ARCH}"
-chmod +x "$HOME/.local/bin/kind"
-kind version
-```
-
-### Step 4.2.3 - Install `helm`
-
-Run:
-
-```bash
-export HELM_INSTALL_DIR="$HOME/.local/bin"
-export USE_SUDO=false
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-helm version --short
-```
-
-Why these environment variables matter:
-- `HELM_INSTALL_DIR` tells the installer where to place the binary
-- `USE_SUDO=false` prevents the script from trying system-wide installation
-
-### Step 4.2.4 - Install `kubectx` and `kubens`
-
-Run:
-
-```bash
-git clone https://github.com/ahmetb/kubectx "$HOME/.local/share/kubectx"
-ln -sf "$HOME/.local/share/kubectx/kubectx" "$HOME/.local/bin/kubectx"
-ln -sf "$HOME/.local/share/kubectx/kubens" "$HOME/.local/bin/kubens"
-command -v kubectx
-command -v kubens
-```
-
-### Step 4.2.5 - Install `k9s`
-
-Run:
-
-```bash
-curl -fsSL https://webinstall.dev/k9s | bash
-export PATH="$HOME/.local/bin:$PATH"
-k9s version --short || true
-```
-
-### Step 4.2.6 - Reload Your Shell
-
-Run:
-
-```bash
-source ~/.bashrc
-```
-
-Or just close Ubuntu and open it again.
-
-Why:
-- Your shell needs to pick up the new `PATH` entry if you changed `.bashrc`
-
-## Stage 5.0 - Verify The Install
-
-Run:
+## Step 4: Create Your First Cluster
 
 ```bash
 cd "/mnt/d/Generative AI Portfolio Projects/kubernetes_architure"
-bash setup/00-prerequisites/check-prerequisites.sh
-```
-
-What success looks like now:
-- `kind` should pass
-- `kubectl` should pass
-- `helm`, `kubectx`, and `k9s` should pass if you installed them
-
-If only optional tools are missing:
-- you can still move forward with Kubernetes basics
-
-If `kind` is still missing:
-- do not start cluster creation yet
-- re-check the exact install step for `kind`
-
-## Stage 6.0 - Create The Cluster
-
-Once the prerequisite check looks good, run:
-
-```bash
 bash setup/01-cluster-setup/create-cluster.sh
+```
+
+This creates a 3-node kind cluster called `learning-cluster`. The first run
+downloads the node container image (~700 MB). This may take 5–10 minutes on
+first run. Subsequent cluster recreations are fast.
+
+**What you should see at the end:**
+```
+✓ Cluster "learning-cluster" is ready
+✓ 3 nodes: 1 control-plane, 2 workers
+✓ All system pods are Running
+✓ kubectl context set to kind-learning-cluster
+→ Next step: bash setup/01-cluster-setup/verify-cluster.sh
+```
+
+---
+
+## Step 5: Verify the Cluster
+
+```bash
 bash setup/01-cluster-setup/verify-cluster.sh
 ```
 
-What these do:
-- `create-cluster.sh` creates the local `kind` cluster
-- `verify-cluster.sh` confirms the control plane and nodes are healthy
-
-What success looks like:
-- nodes show as `Ready`
-- cluster verification passes
-
-## Stage 7.0 - If You Come Back Later And Forget Everything
-
-Use this exact sequence:
-
+Or verify manually:
 ```bash
-# Windows side
-# 1. Open Docker Desktop
+# See your cluster nodes
+kubectl get nodes
 
-# Ubuntu side
-cd "/mnt/d/Generative AI Portfolio Projects/kubernetes_architure"
-bash setup/00-prerequisites/check-prerequisites.sh
-bash setup/01-cluster-setup/create-cluster.sh
-bash setup/01-cluster-setup/verify-cluster.sh
+# Expected output:
+#   NAME                               STATUS   ROLES           AGE
+#   learning-cluster-control-plane     Ready    control-plane   2m
+#   learning-cluster-worker            Ready    <none>          90s
+#   learning-cluster-worker2           Ready    <none>          90s
+
+# See what is running inside your cluster by default
+kubectl get pods --all-namespaces
+
+# The system pods you expect to see Running:
+#   kube-system   coredns-*             2/2   Running
+#   kube-system   etcd-*                1/1   Running
+#   kube-system   kube-apiserver-*      1/1   Running
+#   kube-system   kube-controller-*     1/1   Running
+#   kube-system   kube-proxy-*          3/3   Running (one per node)
+#   kube-system   kube-scheduler-*      1/1   Running
+#   local-path-storage  local-path-*   1/1   Running
 ```
 
-That is your restart recipe.
+---
 
-## Most Important Things To Remember
+## Step 6: Open k9s (Your Cluster Dashboard)
 
-- Open Docker Desktop before trying to create the cluster.
-- Open Ubuntu, not PowerShell, for repository scripts.
-- `kind` is the hard blocker for cluster creation.
-- `helm` matters more when you move into KServe and enterprise add-ons.
-- Your Windows `D:` drive appears as `/mnt/d` in WSL2.
-- User-local install into `~/.local/bin` is perfectly valid for this learning project.
+```bash
+k9s
+```
 
-## Enterprise Translation
+This opens a live, vim-navigable view of everything in your cluster. You will
+see nodes, pods, namespaces, and resource usage in real time.
 
-WSL2 is not production, but it gives you:
-- Linux paths
-- Bash behavior
-- realistic CLI ergonomics
-- a workflow much closer to cloud VMs, bastion hosts, and CI runners
+Navigation:
+- `0` — show all namespaces
+- `:pods` — focus on pods view
+- `j` / `k` — navigate up/down
+- `Enter` — drill into a resource
+- `l` — view logs for a pod
+- `Esc` — go back
+- `Ctrl+C` — exit
 
-That is why this is the recommended Windows path for the repository.
+---
+
+## Daily Startup Sequence (Bookmark This)
+
+Every time you come back to this project, do this in order:
+
+```bash
+# 1. Start Docker Desktop on Windows (if it's not already running).
+
+# 2. Open Ubuntu from the Start menu.
+
+# 3. Confirm you are in Linux:
+uname -r   # Should show "microsoft-standard-WSL2"
+
+# 4. Confirm Docker is available:
+docker version   # Both Client and Server should appear.
+
+# 5. Navigate to the repository:
+cd "/mnt/d/Generative AI Portfolio Projects/kubernetes_architure"
+
+# 6. Check if your cluster is already running:
+kubectl get nodes 2>/dev/null || echo "Cluster not running — recreate with:"
+echo "  bash setup/01-cluster-setup/create-cluster.sh"
+
+# 7. If the cluster is running, you are ready. If not, create it.
+```
+
+> **Why recreate the cluster sometimes?** kind clusters are not persistent
+> across Windows reboots — Docker containers (the nodes) stop. The cluster
+> configuration is preserved on disk, so `create-cluster.sh` rebuilds it
+> identically in under 2 minutes.
+
+---
+
+## Common Problems and Fixes
+
+### "Docker daemon is not running"
+- Open Docker Desktop on Windows. Wait for it to fully start (whale icon in taskbar).
+- Then return to WSL2 and retry.
+
+### "Cannot connect to the Docker daemon at unix:///var/run/docker.sock"
+- Docker Desktop's WSL2 integration is disabled.
+- Docker Desktop → Settings → Resources → WSL Integration → enable your Ubuntu distro.
+
+### "kind: command not found"
+- kind is not installed, or not on PATH.
+- Run: `bash setup/00-prerequisites/platform-guides/windows-wsl2/step-by-step-install.sh`
+
+### "kubectl: Unable to connect to the server"
+- The cluster may not be running.
+- Check: `docker ps | grep learning-cluster`
+- If no containers appear, the cluster is stopped. Recreate it:
+  `bash setup/01-cluster-setup/create-cluster.sh`
+
+### k9s shows blank / no resources
+- You may be in the wrong namespace. Press `0` to show all namespaces.
+
+### Node stays NotReady for more than 3 minutes
+- Usually a Docker memory issue. Check Docker Desktop → Resources → Memory is set to at least 8 GB.
+- Recreate the cluster: `bash setup/01-cluster-setup/create-cluster.sh`
+
+---
+
+## What This Maps to in Enterprise
+
+| Local Setup | Enterprise Equivalent |
+|---|---|
+| WSL2 Ubuntu terminal | Linux bastion host / Cloud Shell / Jump server |
+| Docker Desktop | Managed container runtime on EC2/GCE nodes |
+| kind cluster | AWS EKS, Google GKE, Azure AKS, On-prem OpenShift |
+| kind nodes (Docker containers) | EC2 instances, GCE VMs, Azure VMs, bare-metal |
+| local kubeconfig (`~/.kube/config`) | kubeconfig from `aws eks update-kubeconfig`, `gcloud container clusters get-credentials` |
+| `kubectl get nodes` | Same command, same output — kubectl is universal |
+| k9s dashboard | Kubernetes Dashboard, Lens, OpenLens, Rancher UI |
+
+---
+
+## Next Step
+
+You have a running Kubernetes cluster. Now learn what is inside it.
+
+→ Continue to: [01-cluster-setup/README.md](../../01-cluster-setup/README.md)

@@ -1,0 +1,106 @@
+# =============================================================================
+# FILE: ml-serving/05-custom-fastapi-serving/kubernetes-manifests/03-service-and-hpa.yaml
+# PURPOSE: Service exposure and Horizontal Pod Autoscaling (HPA).
+#
+# ENTERPRISE ML SCALING (LATENCY-BASED):
+#   Standard K8s scales on CPU/Memory utilization. This is WRONG for ML.
+#   CPU usage does not correlate linearly with inference latency.
+#   Instead, we use KEDA (Kubernetes Event-Driven Autoscaling) or
+#   Prometheus Adapter to scale based on custom metrics — specifically,
+#   the P95 inference latency exposed by our FastAPI /metrics endpoint.
+#
+#   For this learning environment, we will define a standard v2 HPA
+#   using CPU utilization as a fallback, but the comments explain the
+#   custom metric architecture.
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: wine-quality-fastapi-service
+  namespace: applications
+  labels:
+    app: wine-quality-fastapi-serving
+  annotations:
+    description: "Internal load balancer for ML inference pods"
+spec:
+  # Using NodePort so you can test it locally via http://localhost:30001
+  # In enterprise prod: ClusterIP (behind an Ingress)
+  type: NodePort
+  selector:
+    app: wine-quality-fastapi-serving
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      nodePort: 30001
+
+---
+# ─── HORIZONTAL POD AUTOSCALER (HPA) ──────────────────────────────────────────
+# Dynamically scales the deployment up and down based on traffic load.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: wine-quality-fastapi-hpa
+  namespace: applications
+  annotations:
+    description: "Autoscaler for ML inference workloads"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: wine-quality-fastapi-serving
+
+  minReplicas: 2   # HA minimum (never drop below 2 to survive node loss)
+  maxReplicas: 10  # Cost control cap
+
+  # ── METRICS ────────────────────────────────────────────────────────────────
+  metrics:
+    # 1. CPU Fallback (Standard K8s)
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          # Scale up if average CPU utilization across all pods exceeds 70%
+          type: Utilization
+          averageUtilization: 70
+
+    # 2. Custom Metric (Enterprise Pattern - Requires KEDA / Prom Adapter)
+    # This block requires a metric server that translates custom.metrics.k8s.io
+    # to Prometheus queries.
+    #
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: http_requests_per_second
+    #     target:
+    #       type: AverageValue
+    #       averageValue: 100
+
+  # ── BEHAVIOR (STABILIZATION) ───────────────────────────────────────────────
+  # Crucial for ML: Prevents "flapping" (rapid scale up/down loop)
+  # Starting a new ML pod takes time. If we scale down too fast when traffic
+  # momentarily dips, the next traffic spike will cause timeouts because new
+  # pods aren't ready yet.
+  behavior:
+    scaleDown:
+      # Wait 5 minutes before making a scale-down decision.
+      # If traffic spikes again within 5m, we keep the pods.
+      stabilizationWindowSeconds: 300
+      policies:
+        # Never terminate more than 25% of pods in a 60-second window
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      # Scale up immediately (no stabilization window) to handle sudden spikes
+      stabilizationWindowSeconds: 0
+      policies:
+        # Allow doubling the pod count (100%) or adding 4 pods, whichever is higher,
+        # every 15 seconds during a sustained spike.
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15

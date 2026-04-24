@@ -1,0 +1,69 @@
+# =============================================================================
+# FILE: 08-resource-management/resource-quota.yaml
+# PURPOSE: Namespace-level resource caps — the enterprise tenant isolation pattern.
+#
+# WHY RESOURCE QUOTAS EXIST:
+#   Without quotas, a single team's runaway deployment can:
+#     - Consume all cluster CPU/memory → other teams' pods can't schedule
+#     - Create thousands of Secrets/ConfigMaps → overload etcd
+#     - Exhaust the cluster's LoadBalancer budget
+#   Quotas create hard boundaries per namespace, enforcing fair sharing.
+#
+# ENTERPRISE PATTERN — CLUSTER TENANCY:
+#   Platform team owns the cluster and sets quotas.
+#   Development teams own namespaces within those quotas.
+#   Teams request quota increases via a ticket/process.
+#   This is the "shared platform" model used at most large tech companies.
+# =============================================================================
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: applications-quota
+  namespace: applications
+  labels:
+    app.kubernetes.io/component: resource-management
+  annotations:
+    description: "Resource limits for the applications namespace"
+    # In enterprise: quotas are set by the platform team
+    # based on the team's capacity planning request
+
+spec:
+  hard:
+    # ── COMPUTE RESOURCES ─────────────────────────────────────────────────────
+    # These REQUIRE that every Pod in this namespace defines requests AND limits.
+    # If a pod doesn't define them, it CANNOT be created in this namespace.
+    # This enforces the "no BestEffort pods" policy in enterprise.
+
+    # requests.cpu: Total CPU requests allowed across ALL pods in namespace
+    # If all pods request 100m CPU and quota is 2, max 20 pods can run.
+    requests.cpu: "2"           # 2 CPU cores total
+    requests.memory: "2Gi"     # 2 GiB total memory requests
+
+    # limits.cpu: Total CPU limits allowed
+    # limits must be >= requests (but K8s doesn't enforce this per pod here)
+    limits.cpu: "4"             # 4 CPU cores total limits
+    limits.memory: "4Gi"        # 4 GiB total memory limits
+
+    # ── OBJECT COUNT QUOTAS ───────────────────────────────────────────────────
+    # Limits the NUMBER of objects, not just their resource consumption.
+    # Protects etcd from being flooded with thousands of small objects.
+
+    # Maximum number of pods (running + pending + succeeded + failed)
+    pods: "20"
+
+    # Service objects
+    services: "10"
+    services.nodeports: "2"       # NodePort services are expensive (port allocation)
+    services.loadbalancers: "2"   # LB services cost money in cloud
+
+    # Config objects
+    configmaps: "30"
+    secrets: "30"
+
+    # PersistentVolumeClaims (storage requests)
+    persistentvolumeclaims: "10"
+
+    # Deployment/ReplicaSet/StatefulSet objects
+    count/deployments.apps: "10"
+    count/replicasets.apps: "30"  # Each deployment keeps ~3 old ReplicaSets

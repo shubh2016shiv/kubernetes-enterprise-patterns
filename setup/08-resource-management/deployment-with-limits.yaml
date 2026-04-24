@@ -1,0 +1,51 @@
+# =============================================================================
+# FILE: 08-resource-management/deployment-with-limits.yaml
+# PURPOSE: Example workload that fits inside the namespace quota and declares
+#          explicit requests/limits.
+#
+# WHY THIS FILE EXISTS:
+#   Resource policies are easier to understand when paired with a workload that
+#   satisfies them. This Deployment gives the learner something concrete to
+#   inspect with `kubectl describe pod` and `kubectl get pod -o yaml`.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-resource-demo
+  namespace: applications
+  labels:
+    app: nginx-resource-demo
+    app.kubernetes.io/component: resource-management
+  annotations:
+    description: "Deployment used to inspect requests, limits, and QoS behavior"
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-resource-demo
+
+  template:
+    metadata:
+      labels:
+        app: nginx-resource-demo
+
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+
+          resources:
+            # requests == limits on both CPU and memory gives this container
+            # the Guaranteed QoS class, which is the strongest eviction
+            # protection Kubernetes can offer during node pressure.
+            requests:
+              cpu: "200m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"

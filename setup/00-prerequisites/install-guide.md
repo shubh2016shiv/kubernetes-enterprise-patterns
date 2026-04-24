@@ -134,15 +134,20 @@ Docker Desktop provides:
 Docker Desktop → Settings → Resources:
 
 ```
-Memory:  8 GB   (kind cluster + your apps need headroom)
-CPUs:    4      (more CPUs = faster pod scheduling simulation)
-Swap:    2 GB   (safety net for memory spikes)
+Memory:  8 GB   (Half your 16 GB RAM. Leaves room for Windows + WSL2)
+CPUs:    6      (Leaves 2 cores for Windows OS)
+Swap:    2 GB   (Safety net for memory spikes)
+Disk:    60 GB  (Container images can be large, especially ML ones)
 ```
 
-> **Why these numbers?**
+> **Hardware Context**: You are running on a 16 GB machine with an RTX 2060.
 > A 3-node kind cluster (1 control-plane + 2 workers) uses roughly 2-3 GB RAM
 > at idle. Your apps on top of that need more. 8 GB gives comfortable headroom
-> on a 16 GB machine, leaving 8 GB for your OS and other tools.
+> for Kubernetes without starving your Windows host OS.
+>
+> **GPU Note**: The RTX 2060 (6 GB VRAM) will become relevant in the `ml-serving/`
+> track. Docker Desktop supports WSL2 GPU passthrough automatically if you have
+> the latest NVIDIA drivers installed on Windows.
 
 ### Disable Docker Desktop's built-in Kubernetes
 

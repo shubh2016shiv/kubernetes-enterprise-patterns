@@ -1,0 +1,39 @@
+# =============================================================================
+# FILE: 09-health-checks/startup-probe.yaml
+# PURPOSE: Isolate startupProbe behavior so the learner can study it without
+#          mixing it with liveness and readiness first.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: startup-probe-demo
+  namespace: applications
+  labels:
+    app: startup-probe-demo
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: startup-probe-demo
+
+  template:
+    metadata:
+      labels:
+        app: startup-probe-demo
+
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25.4
+          ports:
+            - name: http
+              containerPort: 80
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 3

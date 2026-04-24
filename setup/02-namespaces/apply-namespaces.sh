@@ -15,6 +15,25 @@ YELLOW='\033[1;33m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │                    NAMESPACE SETUP FLOW                                   │
+# │                                                                           │
+# │  Stage 1: Apply Declarative YAML                                         │
+# │      └── kubectl apply -f namespaces.yaml                                │
+# │                                                                           │
+# │  Stage 2: List Cluster Namespaces                                        │
+# │      └── kubectl get namespaces                                          │
+# │                                                                           │
+# │  Stage 3: Inspect Namespace Metadata                                     │
+# │      └── kubectl describe namespace applications                         │
+# │                                                                           │
+# │  Stage 4: View Label Selectors                                           │
+# │      └── kubectl get namespaces --show-labels                            │
+# │                                                                           │
+# │  Stage 5: Set Default Context                                            │
+# │      └── Set current context namespace to 'applications'                 │
+# └──────────────────────────────────────────────────────────────────────────┘
+
 MANIFESTS_DIR="$(dirname "$0")"
 
 echo ""

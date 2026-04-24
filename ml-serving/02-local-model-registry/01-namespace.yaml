@@ -1,0 +1,25 @@
+# =============================================================================
+# FILE: ml-serving/02-local-model-registry/01-namespace.yaml
+#
+# PURPOSE:
+#   Create a namespace for model serving workloads.
+#
+# ENTERPRISE RULE:
+#   Never deploy ML serving workloads into `default`.
+#   A namespace gives you a boundary for:
+#     - RBAC permissions
+#     - NetworkPolicies
+#     - ResourceQuota
+#     - cost allocation labels
+#     - audit and ownership
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-serving
+  labels:
+    app.kubernetes.io/part-of: enterprise-ml-platform
+    platform.company.com/environment: local-learning
+    platform.company.com/owner: mlops
+

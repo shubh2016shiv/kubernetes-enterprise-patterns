@@ -1,0 +1,29 @@
+# =============================================================================
+# FILE: 10-enterprise-patterns/horizontal-pod-autoscaler.yaml
+# PURPOSE: Demonstrate autoscaling behavior for a stateless deployment.
+# =============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx-hpa
+  namespace: applications
+  annotations:
+    description: "CPU-based autoscaler for the nginx deployment"
+
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx-deployment
+
+  minReplicas: 3
+  maxReplicas: 6
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

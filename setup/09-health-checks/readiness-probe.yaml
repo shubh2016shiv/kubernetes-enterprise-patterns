@@ -1,0 +1,40 @@
+# =============================================================================
+# FILE: 09-health-checks/readiness-probe.yaml
+# PURPOSE: Minimal example focused on readiness semantics.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: readiness-probe-demo
+  namespace: applications
+  labels:
+    app: readiness-probe-demo
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: readiness-probe-demo
+
+  template:
+    metadata:
+      labels:
+        app: readiness-probe-demo
+
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25.4
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 3
+            successThreshold: 2

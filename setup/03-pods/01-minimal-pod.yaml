@@ -1,0 +1,39 @@
+# =============================================================================
+# FILE: 03-pods/01-minimal-pod.yaml
+# PURPOSE: Minimal enterprise-style Pod used for diagnostics and cluster learning.
+#
+# NOTE:
+#   This is intentionally a bare Pod for learning. In production, long-running
+#   workloads should be managed by Deployments/Jobs, not raw Pods.
+# =============================================================================
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: platform-debug-toolbox
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: platform-debug-toolbox
+    app.kubernetes.io/component: diagnostics
+    app.kubernetes.io/part-of: ml-platform
+    app: platform-toolbox
+spec:
+  terminationGracePeriodSeconds: 10
+  containers:
+    - name: toolbox
+      # Small Unix toolbox image used by SRE/platform teams for one-off checks.
+      image: alpine:3.20.3
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Pod is ready for debug commands (nslookup, wget, env, ip)."
+          sleep 3600
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "128Mi"

@@ -1,0 +1,19 @@
+# =============================================================================
+# FILE: 10-enterprise-patterns/pod-disruption-budget.yaml
+# PURPOSE: Protect service availability during planned disruptions.
+# =============================================================================
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nginx-pdb
+  namespace: applications
+  annotations:
+    description: "Ensures at least 2 nginx pods remain available during voluntary disruptions"
+
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: nginx
+      tier: frontend

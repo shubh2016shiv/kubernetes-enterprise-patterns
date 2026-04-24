@@ -1,0 +1,44 @@
+# =============================================================================
+# FILE: ml-serving/02-local-model-registry/02-model-store-pvc.yaml
+#
+# PURPOSE:
+#   Create a PersistentVolumeClaim that acts as a local model registry.
+#
+# REAL ENTERPRISE FLOW:
+#   Training pipeline finishes -> uploads model.joblib to S3/GCS/Azure Blob
+#   KServe storage initializer -> downloads that object into the serving pod
+#
+# LOCAL LEARNING FLOW:
+#   You already have a local model artifact -> copy it into this PVC
+#   KServe reads it via storageUri: pvc://wine-model-store/wine-quality/v1/
+#
+# WHY PVC:
+#   A PVC is not the enterprise default model registry, but it gives you the
+#   same orchestration feeling locally:
+#     - model artifact exists outside the serving container image
+#     - the image and model version can change independently
+#     - KServe receives a storage URI rather than baked-in files
+#
+# IMPORTANT KServe CONTRACT:
+#   For sklearn, the directory referenced by `storageUri` must contain:
+#     model.joblib
+#
+#   Example final path inside this PVC:
+#     /mnt/models/wine-quality/v1/model.joblib
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wine-model-store
+  namespace: ml-serving
+  labels:
+    app.kubernetes.io/name: wine-quality
+    app.kubernetes.io/component: model-store
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+

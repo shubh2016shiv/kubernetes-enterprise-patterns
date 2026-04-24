@@ -1,0 +1,58 @@
+# =============================================================================
+# FILE: ml-serving/02-local-model-registry/03-model-store-loader-pod.yaml
+#
+# PURPOSE:
+#   Temporary utility pod used only to copy a local model artifact into the PVC.
+#
+# WHY A POD IS NEEDED:
+#   A PVC is mounted inside Kubernetes. Your laptop filesystem cannot directly
+#   write into it unless you go through a pod that mounts the claim.
+#
+# FLOW:
+#   1. Apply this pod.
+#   2. Wait until it is Running.
+#   3. Use `kubectl cp` to copy model.joblib into /mnt/models/wine-quality/v1/.
+#   4. Delete this pod.
+#
+# ENTERPRISE EQUIVALENT:
+#   You would not do kubectl cp in production.
+#   A CI/CD or training pipeline would publish the artifact to S3/GCS/Blob/MLflow,
+#   and KServe would pull it from that immutable versioned location.
+# =============================================================================
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: wine-model-store-loader
+  namespace: ml-serving
+  labels:
+    app.kubernetes.io/name: wine-quality
+    app.kubernetes.io/component: model-store-loader
+spec:
+  restartPolicy: Never
+  containers:
+    - name: loader
+      image: busybox:1.36
+      command:
+        - /bin/sh
+        - -c
+        - |
+          mkdir -p /mnt/models/wine-quality/v1
+          echo "PVC is mounted. Copy model.joblib here:"
+          echo "  /mnt/models/wine-quality/v1/model.joblib"
+          sleep 86400
+      volumeMounts:
+        - name: model-store
+          mountPath: /mnt/models
+      resources:
+        requests:
+          cpu: "20m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+  volumes:
+    - name: model-store
+      persistentVolumeClaim:
+        claimName: wine-model-store
+

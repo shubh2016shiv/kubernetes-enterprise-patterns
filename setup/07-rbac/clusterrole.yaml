@@ -1,0 +1,48 @@
+# =============================================================================
+# FILE: 07-rbac/clusterrole.yaml
+# PURPOSE: Demonstrate cluster-scoped RBAC for cross-namespace platform tools.
+#
+# WHY THIS EXISTS:
+#   Some components do not live entirely inside one namespace. Prometheus,
+#   admission controllers, GitOps agents, and operators often need to read or
+#   watch objects across the cluster. That is when ClusterRole becomes the
+#   correct abstraction instead of Role.
+# =============================================================================
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-read-cluster-state
+  labels:
+    app.kubernetes.io/component: rbac
+  annotations:
+    description: "Read-only cluster-scoped permissions for Prometheus-style service discovery"
+
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "services", "endpoints", "namespaces"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-scraper-cluster-read
+  labels:
+    app.kubernetes.io/component: rbac
+  annotations:
+    description: "Binds cluster-wide read permissions to the monitoring namespace scraper service account"
+
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-read-cluster-state
+
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-scraper-sa
+    namespace: monitoring

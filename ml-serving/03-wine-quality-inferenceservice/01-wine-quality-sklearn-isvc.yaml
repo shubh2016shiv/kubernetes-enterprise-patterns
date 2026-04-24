@@ -1,0 +1,110 @@
+# =============================================================================
+# FILE: ml-serving/03-wine-quality-inferenceservice/01-wine-quality-sklearn-isvc.yaml
+#
+# PURPOSE:
+#   Deploy the trained wine quality sklearn model through KServe.
+#
+# THIS IS THE ENTERPRISE OBJECT TO STUDY:
+#   kind: InferenceService
+#
+# You are not writing a Pod, Deployment, Service, or HPA manually here.
+# You declare the desired model-serving contract, and KServe reconciles the
+# lower-level Kubernetes objects.
+#
+# WHAT KServe WILL CREATE IN STANDARD MODE:
+#   - Deployment: runs the sklearn serving runtime pods
+#   - Service: stable in-cluster endpoint for those pods
+#   - HPA: scales pods based on cpu or memory when enabled
+#   - Ingress/Gateway object depending on cluster configuration
+#
+# MODEL ARTIFACT CONTRACT:
+#   storageUri: pvc://wine-model-store/wine-quality/v1/
+#
+#   Means:
+#     - use the PVC named `wine-model-store`
+#     - inside it, read directory `wine-quality/v1/`
+#     - that directory must contain `model.joblib`
+#
+# PRODUCTION TRANSLATION:
+#   Local PVC:
+#     pvc://wine-model-store/wine-quality/v1/
+#
+#   Enterprise S3:
+#     s3://company-ml-models/wine-quality/1.0.0/
+#
+#   Enterprise Azure Blob:
+#     https://<account>.blob.core.windows.net/models/wine-quality/1.0.0/
+#
+#   Enterprise GCS:
+#     gs://company-ml-models/wine-quality/1.0.0/
+#
+# WHY protocolVersion: v2:
+#   V2 is the Open Inference Protocol. It gives a consistent inference request
+#   shape across runtimes:
+#     POST /v2/models/<model-name>/infer
+#
+# LOCAL RESOURCE CHOICE:
+#   This is a tiny sklearn model. It does not need GPU.
+#   Requests/limits are still declared because enterprise clusters schedule and
+#   protect workloads based on these numbers.
+# =============================================================================
+
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: wine-quality
+  namespace: ml-serving
+  labels:
+    app.kubernetes.io/name: wine-quality
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/part-of: enterprise-ml-platform
+    ml.company.com/model-family: wine-quality
+    ml.company.com/model-version: "1.0.0"
+  annotations:
+    # Per-service override. Even if the cluster default changes later, this
+    # model stays on Standard mode unless you deliberately edit this YAML.
+    serving.kserve.io/deploymentMode: "Standard"
+
+    # HPA means KServe creates a Kubernetes HorizontalPodAutoscaler.
+    # For advanced enterprise custom metrics, KServe can integrate with KEDA,
+    # but CPU HPA is the first operational object to learn locally.
+    serving.kserve.io/autoscalerClass: "hpa"
+spec:
+  predictor:
+    # Local laptop setting:
+    #   1 replica keeps RAM usage friendly on a 16 GB machine.
+    #
+    # Enterprise setting:
+    #   Use at least 2 replicas across different nodes/AZs for high availability.
+    minReplicas: 1
+    maxReplicas: 3
+
+    # In Standard mode, KServe HPA supports cpu and memory metrics.
+    # This says: if average CPU utilization crosses 70%, scale up.
+    scaleMetric: cpu
+    scaleTarget: 70
+
+    model:
+      modelFormat:
+        # KServe chooses a compatible sklearn runtime.
+        # The runtime container knows how to load model.joblib.
+        name: sklearn
+
+      # Open Inference Protocol v2 endpoint shape.
+      protocolVersion: v2
+
+      # Local stand-in for S3/Blob/model registry.
+      storageUri: "pvc://wine-model-store/wine-quality/v1/"
+
+      resources:
+        requests:
+          # Requests are scheduling promises.
+          # Kubernetes only places this pod on a node that can provide these.
+          cpu: "250m"
+          memory: "512Mi"
+        limits:
+          # Limits are guardrails.
+          # If memory goes above this, the container can be OOMKilled.
+          cpu: "1"
+          memory: "1Gi"
+

@@ -24,6 +24,47 @@ set -e
 set -u
 set -o pipefail
 
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │                    CLUSTER CREATION FLOW                                 │
+# │                                                                          │
+# │  Stage 1: Pre-flight Checks                                              │
+# │      ├── Docker daemon is running?                                       │
+# │      ├── kind binary on PATH?                                            │
+# │      ├── kubectl binary on PATH?                                         │
+# │      └── kind-cluster-config.yaml exists?                                │
+# │                                                                          │
+# │  Stage 2: Idempotency Check                                              │
+# │      ├── Does cluster "local-enterprise-dev" already exist?              │
+# │      │   YES → skip creation, update kubeconfig context, continue        │
+# │      └── NO  → proceed to cluster creation                               │
+# │                                                                          │
+# │  Stage 3: Cluster Creation (kind create cluster)                         │
+# │      ├── kind pulls kindest/node image (~700 MB, cached after first run) │
+# │      ├── Creates 3 Docker containers (1 control-plane + 2 workers)       │
+# │      ├── Runs kubeadm init → bootstraps API server, etcd, scheduler      │
+# │      ├── Runs kubeadm join → workers join the cluster                    │
+# │      └── Installs kindnet CNI → enables pod-to-pod networking            │
+# │                                                                          │
+# │  Stage 4: Node Readiness Wait                                            │
+# │      └── Poll until all 3 nodes report Status=Ready                      │
+# │                                                                          │
+# │  Stage 5: Post-creation Summary                                          │
+# │      ├── Print kubectl context, nodes, system pods, cluster-info         │
+# │      └── Print "what to do next" guide                                   │
+# │                                                                          │
+# │  MACHINE CONTEXT:                                                        │
+# │    Windows 11 / WSL2 Ubuntu 22.04 / Docker Desktop                       │
+# │    16 GB RAM (8 GB allocated to Docker) / RTX 2060 6 GB                  │
+# │    Expected total creation time: 60–120 seconds                          │
+# │                                                                          │
+# │  ENTERPRISE TRANSLATION:                                                 │
+# │    This script ≈ Terraform + eksctl for AWS EKS cluster creation.        │
+# │    On EKS: `eksctl create cluster --config-file cluster.yaml`            │
+# │    On GKE: `gcloud container clusters create ...`                        │
+# │    On AKS: `az aks create ...`                                           │
+# │    The kubectl commands you run after creation are IDENTICAL.            │
+# └──────────────────────────────────────────────────────────────────────────┘
+
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 # Define all tuneable values at the top of the script (never hardcode inline).
 # In enterprise, these would come from environment variables or a config file.

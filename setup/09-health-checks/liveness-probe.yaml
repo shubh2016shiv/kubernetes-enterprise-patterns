@@ -1,0 +1,39 @@
+# =============================================================================
+# FILE: 09-health-checks/liveness-probe.yaml
+# PURPOSE: Minimal example focused on liveness semantics.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: liveness-probe-demo
+  namespace: applications
+  labels:
+    app: liveness-probe-demo
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: liveness-probe-demo
+
+  template:
+    metadata:
+      labels:
+        app: liveness-probe-demo
+
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25.4
+          ports:
+            - name: http
+              containerPort: 80
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5

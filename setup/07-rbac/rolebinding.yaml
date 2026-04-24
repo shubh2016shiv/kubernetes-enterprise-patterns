@@ -1,0 +1,29 @@
+# =============================================================================
+# FILE: 07-rbac/rolebinding.yaml
+# PURPOSE: Bind namespace-scoped Roles to concrete ServiceAccounts.
+#
+# WHY THIS FILE IS SEPARATE:
+#   Roles define permissions. RoleBindings grant those permissions to subjects.
+#   Splitting the binding into its own file helps learners see the RBAC graph:
+#   identity -> binding -> permissions.
+# =============================================================================
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nginx-pod-reader-binding
+  namespace: applications
+  labels:
+    app.kubernetes.io/component: rbac
+  annotations:
+    description: "Grants nginx service account read access to pod and service metadata"
+
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nginx-pod-reader
+
+subjects:
+  - kind: ServiceAccount
+    name: nginx-service-account
+    namespace: applications
