@@ -66,12 +66,17 @@ moved to a different model version without changing the version itself.
 4. Read [publish_candidate_to_mlflow.py](../src/wine_quality_training/model_registry/publish_candidate_to_mlflow.py)
    to see how one completed training run becomes a reviewable MLflow model
    version.
-5. Read [ml-training-ci.yaml](../../../.github/workflows/ml-training-ci.yaml) to
+5. Read [model-approval-and-serving-handoff-guide.md](./model-approval-and-serving-handoff-guide.md)
+   to understand what happens after MLflow shows a candidate model version.
+6. Read [mlflow-manager-promotion-runbook.md](./mlflow-manager-promotion-runbook.md)
+   to follow the manager/lead workflow for promoting a candidate into a
+   production-approved registry and assigning `champion`.
+7. Read [ml-training-ci.yaml](../../../.github/workflows/ml-training-ci.yaml) to
    see how code/config changes and manual teammate requests trigger the training
    workflow.
-6. Run the local MLflow server, then run the training pipeline using your
+8. Run the local MLflow server, then run the training pipeline using your
    local `.env` file.
-7. Open the MLflow UI and inspect the `candidate` model alias.
+9. Open the MLflow UI and inspect the `candidate` model alias.
 
 ## Commands section
 

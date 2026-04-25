@@ -1275,6 +1275,8 @@ Start here:
 
 - [training-control-plane/README.md](training-control-plane/README.md)
 - [training-control-plane/start-mlflow-server.sh](training-control-plane/start-mlflow-server.sh)
+- [Model approval and serving handoff guide](training-control-plane/model-approval-and-serving-handoff-guide.md)
+- [MLflow manager promotion runbook](training-control-plane/mlflow-manager-promotion-runbook.md)
 - [Central Pydantic runtime settings](src/wine_quality_training/shared/env_config.py)
 - [Local runtime env template](.env.example)
 - [Configuration reference guide](configs/README.md)
