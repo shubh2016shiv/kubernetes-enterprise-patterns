@@ -1,0 +1,87 @@
+# =============================================================================
+# FILE:    08-inference-cleanup-targets.yaml
+# KIND:    List
+# PURPOSE: Declare the inference-owned Kubernetes resources that can be deleted
+#          when the learner wants to reset the FastAPI inference stack.
+# WHEN:    Use only with destroy-inference-stack_4.sh or `kubectl delete -f`.
+# ENTERPRISE EQUIVALENT: In production, teardown is usually handled by GitOps
+#   pruning, a Helm uninstall, or an environment-destroy pipeline with approval
+#   gates. This local lab keeps the delete targets explicit so the learner can
+#   see exactly what will be removed before running a destructive command.
+# =============================================================================
+
+# WARNING: This manifest is for deletion, not deployment.
+# Do NOT run `kubectl apply -f 08-inference-cleanup-targets.yaml`.
+# To delete these resources manually, run:
+#
+#   kubectl delete -f 08-inference-cleanup-targets.yaml --ignore-not-found=true
+#
+# LOCAL SCOPE: This file deletes only inference-owned Kubernetes resources in
+# the local cluster. It does not delete the kind cluster, Docker images, MLflow
+# model artifacts, or files on your laptop.
+
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    metadata:
+      # CAN BE CHANGED: Must match 07-hpa.yaml metadata.name. Example:
+      # `fraud-risk-inference-hpa` if the HPA was renamed.
+      name: wine-quality-inference-hpa
+      # CAN BE CHANGED: Must match 01-namespace.yaml metadata.name.
+      # Example: `ml-inference-dev`.
+      namespace: ml-inference
+
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      # CAN BE CHANGED: Must match 06-inference-service.yaml metadata.name.
+      # Example: `fraud-risk-inference-service`.
+      name: wine-quality-inference-service
+      # CAN BE CHANGED: Must match 01-namespace.yaml metadata.name.
+      namespace: ml-inference
+
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      # CAN BE CHANGED: Must match 05-inference-deployment.yaml metadata.name.
+      # Example: `fraud-risk-inference-api`.
+      name: wine-quality-inference-api
+      # CAN BE CHANGED: Must match 01-namespace.yaml metadata.name.
+      namespace: ml-inference
+
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      # CAN BE CHANGED: Must match 04-inference-secret-placeholder.yaml
+      # metadata.name. Example: `fraud-risk-inference-secrets`.
+      name: wine-quality-inference-secrets
+      # CAN BE CHANGED: Must match 01-namespace.yaml metadata.name.
+      namespace: ml-inference
+
+  - apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      # CAN BE CHANGED: Must match 03-inference-serviceaccount.yaml
+      # metadata.name. Example: `fraud-risk-inference-api`.
+      name: wine-quality-inference-api
+      # CAN BE CHANGED: Must match 01-namespace.yaml metadata.name.
+      namespace: ml-inference
+
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      # CAN BE CHANGED: Must match 02-inference-configmap.yaml metadata.name.
+      # Example: `fraud-risk-inference-config`.
+      name: wine-quality-inference-config
+      # CAN BE CHANGED: Must match 01-namespace.yaml metadata.name.
+      namespace: ml-inference
+
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      # CAN BE CHANGED: Must match 01-namespace.yaml metadata.name. Deleting the
+      # namespace also deletes any other resources that still exist inside it.
+      # Example: `ml-inference-dev`.
+      name: ml-inference

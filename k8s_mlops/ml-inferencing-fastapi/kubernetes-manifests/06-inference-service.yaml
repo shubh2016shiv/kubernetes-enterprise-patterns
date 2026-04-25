@@ -1,0 +1,73 @@
+# =============================================================================
+# FILE:    06-inference-service.yaml
+# KIND:    Service
+# PURPOSE: Provide a stable network endpoint for the wine quality inference API.
+#          Pods have ephemeral IP addresses that change with every restart or
+#          rollout. A Service gives callers one stable address to use regardless
+#          of how many pods are running or which nodes they are on.
+# WHEN:    ml-inferencing module — apply after the Deployment.
+# ENTERPRISE EQUIVALENT: In AWS EKS, the external-facing service would use
+#   type: LoadBalancer backed by the AWS Load Balancer Controller (ALB), which
+#   integrates with Route53, ACM (TLS certificates), and WAF. Internally
+#   (service-to-service), ClusterIP is used — same as this local lab.
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  # CAN BE CHANGED: Rename the Service if you want a different stable DNS name.
+  # Example: `fraud-risk-inference-service`. If changed, update scripts and
+  # callers that use the service DNS name.
+  name: wine-quality-inference-service
+  # CAN BE CHANGED: Must match 01-namespace.yaml. Example: `ml-inference-dev`.
+  namespace: ml-inference
+  labels:
+    app.kubernetes.io/name: wine-quality-inference-api
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/part-of: k8s-mlops-platform
+    app.kubernetes.io/managed-by: kubectl
+
+spec:
+  # ClusterIP makes the service reachable from within the cluster only.
+  # Other pods in the cluster access this service at:
+  #   http://wine-quality-inference-service.ml-inference.svc.cluster.local:8080
+  #
+  # LOCAL SHORTCUT: For local testing with NodePort, change to:
+  #   type: NodePort
+  # Then use kubectl port-forward or the NodePort IP to reach it from WSL2.
+  # NodePort exposes the service on a random port (30000-32767) on every node.
+  #
+  # ENTERPRISE EQUIVALENT: For external traffic, change to LoadBalancer and add
+  # cloud-specific annotations. For example, on AWS EKS:
+  #   type: LoadBalancer
+  #   annotations:
+  #     service.beta.kubernetes.io/aws-load-balancer-type: "external"
+  #     service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+  # CAN BE CHANGED: Use `ClusterIP` for internal-only traffic, `NodePort` for
+  # simple local node access, or `LoadBalancer` in a cloud cluster.
+  type: ClusterIP
+
+  # The selector matches pods by their labels. The Service routes traffic only
+  # to pods that:
+  #   1. Match these labels.
+  #   2. Are passing their readiness probe (Kubernetes manages this automatically).
+  #
+  # This means: during a rolling update, the Service never routes to pods that
+  # are still loading the new model version. Old pods with the current model
+  # continue serving until new pods are ready.
+  selector:
+    app.kubernetes.io/name: wine-quality-inference-api
+    app.kubernetes.io/component: inference
+
+  ports:
+    - name: http
+      protocol: TCP
+      # The port callers use to reach the Service.
+      # CAN BE CHANGED: Example `80` for an HTTP-style service port, but update
+      # test scripts and any clients that call the Service.
+      port: 8080
+      # The port on the pod the Service forwards to. Must match containerPort
+      # in 05-inference-deployment.yaml and the --port flag in the Dockerfile CMD.
+      # CAN BE CHANGED: Keep as `http` if the pod port name remains `http`; use
+      # a number such as `8090` only if the Deployment container port changes.
+      targetPort: http

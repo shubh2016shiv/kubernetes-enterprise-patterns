@@ -1,0 +1,347 @@
+# =============================================================================
+# FILE:    05-inference-deployment.yaml
+# KIND:    Deployment
+# PURPOSE: Run the wine quality inference API as a stateless, rolling-update-
+#          capable Kubernetes Deployment. The Deployment ensures the desired
+#          number of replicas stay running, restarts failed pods, and enables
+#          zero-downtime model version rollouts.
+# WHEN:    ml-inferencing module — apply after namespace, ConfigMap, and Secret.
+# ENTERPRISE EQUIVALENT: This is the standard production pattern for ML
+#   inference APIs on EKS, GKE, AKS, or OpenShift. The manifest uses the same
+#   resource shape as production — only the image tag and cluster differ.
+#   In production, the image tag would be an immutable Git SHA digest rather
+#   than a local kind tag.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # CAN BE CHANGED: Rename the Deployment if the serving app changes.
+  # Example: `fraud-risk-inference-api`. If changed, update Service selectors,
+  # HPA scaleTargetRef.name, rollout commands, and scripts that reference it.
+  name: wine-quality-inference-api
+  # CAN BE CHANGED: Must match 01-namespace.yaml. Example: `ml-inference-dev`.
+  namespace: ml-inference
+  labels:
+    app.kubernetes.io/name: wine-quality-inference-api
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/part-of: k8s-mlops-platform
+    app.kubernetes.io/managed-by: kubectl
+    # The model version label is updated by the release bridge when a new model
+    # version is deployed. It enables filtering pods by model version in kubectl
+    # and Prometheus queries: kubectl get pods -l model-version=1 -n ml-inference
+    # CAN BE CHANGED: Set this to the served model version for observability.
+    # Example: `"7"` when MODEL_VERSION is `"7"` in the ConfigMap.
+    mlops.platform/model-version: "REPLACE_WITH_VERSION_NUMBER"
+
+spec:
+  # ENTERPRISE EMPHASIS: Two replicas is the minimum for zero-downtime rolling
+  # updates (maxUnavailable: 0 needs at least one pod always available). In
+  # production, the HPA (07-hpa.yaml) will increase this automatically when
+  # prediction traffic grows. The value here is the starting replica count that
+  # HPA uses as its minimum if minReplicas is not set lower.
+  #
+  # LOCAL SHORTCUT: 2 replicas fits comfortably in a kind cluster with 16 GB RAM.
+  # Each inference pod requests 256Mi of RAM and 100m CPU.
+  # CAN BE CHANGED: Start with `1` for the lightest local test, `2` for
+  # zero-downtime rolling updates, or `3+` when your cluster has enough nodes
+  # and memory. Keep this aligned with HPA `minReplicas` in 07-hpa.yaml.
+  replicas: 2
+
+  # Keep the last 5 ReplicaSet revisions. Each rollout creates a new ReplicaSet.
+  # kubectl rollout history shows these revisions and undo restores from them.
+  # CAN BE CHANGED: Increase for more rollback history, for example `10`, if
+  # your cluster and GitOps retention policy expect deeper rollout history.
+  revisionHistoryLimit: 5
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: wine-quality-inference-api
+      app.kubernetes.io/component: inference
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # maxUnavailable: 0 — never remove a ready pod until a new pod is ready.
+      # This guarantees that during a model version rollout, the cluster always
+      # has at least `replicas` pods serving predictions.
+      # ENTERPRISE EMPHASIS: For ML inference, maxUnavailable: 0 is the correct
+      # default. Model loading can take 10–60+ seconds. Without this setting,
+      # Kubernetes might terminate old pods before new pods finish loading the
+      # model, causing a brief window of reduced capacity or HTTP 503s.
+      maxUnavailable: 0
+      # maxSurge: 1 — allow one extra pod during the rollout. This means at
+      # peak rollout time there will be replicas + 1 pods running simultaneously.
+      # Requires enough node capacity for the surge pod. In a 16 GB kind cluster
+      # with 2-replica inference pods, this adds one more small pod transiently.
+      # CAN BE CHANGED: Use `2` for faster rollouts on larger clusters, or keep
+      # `1` locally to avoid overloading Docker Desktop.
+      maxSurge: 1
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wine-quality-inference-api
+        app.kubernetes.io/component: inference
+        app.kubernetes.io/part-of: k8s-mlops-platform
+        # CAN BE CHANGED: Set this to the served model version for pod filtering.
+        # Example: `"7"` when deploying MLflow model version 7.
+        mlops.platform/model-version: "REPLACE_WITH_VERSION_NUMBER"
+
+      annotations:
+        # The ConfigMap checksum annotation causes Kubernetes to trigger a
+        # rolling restart whenever the ConfigMap content changes (even if the
+        # Deployment spec itself did not change).
+        # The release bridge populates this annotation with the SHA256 of the
+        # rendered ConfigMap content. This is the Helm-style "force restart on
+        # config change" pattern.
+        # ENTERPRISE EMPHASIS: Without this annotation, updating the ConfigMap
+        # with a new MODEL_URI does nothing to running pods. Environment
+        # variables from envFrom are read once at pod start — they do not reload.
+        # The annotation change triggers a new ReplicaSet which starts pods with
+        # the updated environment values.
+        # CAN BE CHANGED: The release bridge should write the SHA256 checksum
+        # for the rendered ConfigMap. Example: `"b7f4...9a1c"`.
+        checksum/config: "REPLACE_WITH_CONFIGMAP_SHA256"
+
+    spec:
+      # ENTERPRISE EMPHASIS: Use a dedicated ServiceAccount for the inference
+      # pod rather than the namespace's default ServiceAccount. This app does
+      # not need Kubernetes API permissions, so automountServiceAccountToken is
+      # false below. If future features need Kubernetes API access, Role-Based
+      # Access Control (RBAC) can grant permissions to this one workload identity
+      # instead of silently expanding the default identity shared by unrelated
+      # pods.
+      #
+      # ANTI-PATTERN TO AVOID: serviceAccountName: default. It works locally but
+      # hides workload ownership and makes later permission reviews confusing.
+      # CAN BE CHANGED: Must match 03-inference-serviceaccount.yaml if renamed.
+      # Example: `fraud-risk-inference-api`.
+      serviceAccountName: wine-quality-inference-api
+      # CAN BE CHANGED: Keep `false` unless the pod needs to call the Kubernetes
+      # API. Set to `true` only after adding least-privilege RBAC.
+      automountServiceAccountToken: false
+
+      securityContext:
+        # Run as non-root. Matches UID/GID 10001 set in the Dockerfile.
+        # CAN BE CHANGED: Only change these IDs if the Dockerfile creates a
+        # different non-root runtime user. Example: `runAsUser: 10002`.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Prefer to schedule inference pods across different nodes.
+      # ENTERPRISE EMPHASIS: Pod anti-affinity prevents both replicas from
+      # landing on the same node. If that node is drained (maintenance, AZ
+      # failure), the cluster still has one replica serving traffic.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: wine-quality-inference-api
+                topologyKey: kubernetes.io/hostname
+
+      # Spread pods across nodes with best-effort topology awareness.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: wine-quality-inference-api
+
+      containers:
+        - name: inference-api
+          # LOCAL SHORTCUT: This local image tag is built by the developer and
+          # loaded into kind with `kind load docker-image`.
+          # ENTERPRISE EQUIVALENT: registry.company.com/ml-platform/wine-quality-inference-api:git-sha
+          # An immutable image tag (Git SHA or digest) prevents silent version
+          # drift between environments.
+          # CAN BE CHANGED: Use the image you built and loaded/pushed.
+          # Examples: `wine-quality-inference-api:1.1.0` locally, or
+          # `registry.company.com/ml-platform/wine-quality-inference-api:abc1234`.
+          image: wine-quality-inference-api:1.0.0
+          # CAN BE CHANGED: Use `Always` for mutable development tags, but keep
+          # `IfNotPresent` for kind-loaded local images and immutable tags.
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - name: http
+              # Must match the --port in the Dockerfile CMD and the
+              # Service targetPort in 06-inference-service.yaml.
+              # CAN BE CHANGED: Example `8090`, but also update the Dockerfile
+              # server port, Service targetPort/port, probes, and test scripts.
+              containerPort: 8080
+              protocol: TCP
+
+          # Load non-sensitive configuration from the ConfigMap.
+          # This injects MODEL_URI, MODEL_VERSION, MLFLOW_TRACKING_URI,
+          # APP_NAME, APP_ENVIRONMENT, APP_VERSION, and LOG_LEVEL as
+          # environment variables into the pod at startup.
+          # ENTERPRISE EMPHASIS: This is the Kubernetes-native way to inject
+          # environment-specific configuration without baking it into the image.
+          # The same image runs in local, staging, and production — only the
+          # ConfigMap changes between environments.
+          envFrom:
+            - configMapRef:
+                name: wine-quality-inference-config
+
+          env:
+            # Kubernetes downward API: inject pod identity into the container
+            # environment. The InferenceSettings class reads these as POD_NAME,
+            # POD_NAMESPACE, and NODE_NAME. They appear in health check
+            # responses and logs, which makes debugging multi-replica deployments
+            # much easier: each log line identifies which pod produced it.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+            # If MLflow authentication is enabled, inject credentials from the
+            # Secret here. Uncomment when the Secret has real values:
+            # - name: MLFLOW_USERNAME
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: wine-quality-inference-secrets
+            #       key: mlflow_username
+            # - name: MLFLOW_API_TOKEN
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: wine-quality-inference-secrets
+            #       key: mlflow_api_token
+
+          resources:
+            # ENTERPRISE EMPHASIS: Resource requests determine where Kubernetes
+            # schedules the pod. Limits cap the pod's usage to prevent it from
+            # consuming excessive node resources under unexpected load. HPA
+            # CPU target percentage is calculated against CPU requests — missing
+            # a request value makes autoscaling behavior unpredictable.
+            #
+            # sklearn Pipelines are lightweight (sub-100 MB for the wine model).
+            # Memory request includes the model in RAM plus FastAPI/Python overhead.
+            # CPU request is modest because sklearn predict() is fast on tabular data.
+            # CAN BE CHANGED: Tune requests to the minimum steady-state capacity
+            # the pod needs. Example for a heavier model: cpu `"500m"`, memory
+            # `"1Gi"`. HPA CPU utilization is calculated from the CPU request.
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            # CAN BE CHANGED: Tune limits to cap worst-case pod usage. Example
+            # for a larger sklearn or deep learning model: cpu `"2"`, memory
+            # `"4Gi"`, if your local/enterprise nodes have that capacity.
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          # ──────────────────────────────────────────────────────────────
+          # PROBE STRATEGY: THREE probes for one pod.
+          #
+          # startupProbe:  "Is the app past its startup phase?"
+          #   → While this probe is failing, liveness and readiness are
+          #     NOT checked. This gives the container time to load the model
+          #     without being killed by a liveness timeout.
+          #
+          # livenessProbe: "Is the process alive and responsive?"
+          #   → Only checked after startupProbe passes.
+          #   → If it fails failureThreshold times, the container is restarted.
+          #   → Uses /health/live which never checks model loading state.
+          #
+          # readinessProbe: "Is the pod ready to receive traffic?"
+          #   → Checked from the moment the pod starts.
+          #   → If it fails, the pod is removed from Service endpoints.
+          #   → Uses /health/ready which returns 503 until model is loaded.
+          # ──────────────────────────────────────────────────────────────
+
+          startupProbe:
+            # ENTERPRISE EMPHASIS: The startupProbe protects against pods with
+            # slow startup (e.g., large model downloads). Without it, a model
+            # that takes 60 seconds to load would fail liveness probes and get
+            # restarted in an infinite loop.
+            # failureThreshold * periodSeconds = 30 * 5 = 150 seconds max startup.
+            # Adjust for larger models with longer download times.
+            # CAN BE CHANGED: Increase `failureThreshold` or `periodSeconds` for
+            # large model downloads. Example: `failureThreshold: 60` and
+            # `periodSeconds: 5` allows about 5 minutes.
+            httpGet:
+              path: /health/live
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+
+          livenessProbe:
+            # Liveness checks only that the Python process is alive.
+            # Uses /health/live which always returns 200 if the process runs.
+            # Does NOT check model loading state — that is readiness' job.
+            # CAN BE CHANGED: Tune `periodSeconds`, `timeoutSeconds`, and
+            # `failureThreshold` if the API runs on a slow or overloaded node.
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            # ENTERPRISE EMPHASIS: Readiness is the traffic gate for model
+            # rollouts. /health/ready returns HTTP 503 until the model artifact
+            # is loaded into memory. Kubernetes holds this pod out of the Service
+            # endpoint set during the entire model-loading window. When loading
+            # completes and /health/ready returns HTTP 200, Kubernetes routes
+            # traffic to this pod and begins draining the old pods.
+            # CAN BE CHANGED: Increase `failureThreshold` for slower model
+            # loading. Example: `failureThreshold: 24` with `periodSeconds: 5`
+            # gives about 2 minutes before Kubernetes marks readiness failed.
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+
+          volumeMounts:
+            # /tmp is needed by mlflow.pyfunc.load_model() for temporary
+            # artifact extraction. The container has readOnlyRootFilesystem: true,
+            # so /tmp must be an explicit writable volume.
+            # CAN BE CHANGED: Change the mount path only if the application or
+            # MLflow cache configuration uses a different temporary directory.
+            - name: tmp-dir
+              mountPath: /tmp
+            # MLflow stores its local cache in ~/.mlflow. The non-root user's
+            # home directory is not writable with readOnlyRootFilesystem.
+            # Mount a writable emptyDir for MLflow's internal cache files.
+            # CAN BE CHANGED: Change this only if the container user home or
+            # `MLFLOW_HOME` changes. Example: `/home/app/.mlflow`.
+            - name: mlflow-cache
+              mountPath: /home/inference/.mlflow
+
+      volumes:
+        # CAN BE CHANGED: `emptyDir` is temporary pod-local storage. Use a
+        # PersistentVolumeClaim (PVC) only if cache data must survive pod restarts.
+        - name: tmp-dir
+          emptyDir: {}
+        # CAN BE CHANGED: Add `sizeLimit` locally if you want to cap cache
+        # growth. Example: `emptyDir: { sizeLimit: "1Gi" }`.
+        - name: mlflow-cache
+          emptyDir: {}

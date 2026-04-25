@@ -1,0 +1,119 @@
+# =============================================================================
+# FILE:    07-hpa.yaml
+# KIND:    HorizontalPodAutoscaler (HPA)
+# PURPOSE: Automatically scale the number of inference API pods based on CPU
+#          utilization. When prediction traffic increases, HPA adds replicas.
+#          When traffic drops, HPA removes them to save cluster resources.
+# WHEN:    ml-inferencing module — apply after the Deployment and Service.
+# ENTERPRISE EQUIVALENT: In production, HPA may scale on custom metrics such as
+#   requests-per-second or GPU utilization via the Kubernetes custom metrics API
+#   (backed by Prometheus Adapter, KEDA, or Datadog Cluster Agent). CPU-based
+#   scaling is the default and covers most stateless API workloads well.
+# =============================================================================
+
+# PREREQUISITE: HPA requires the metrics-server to be running in the cluster.
+# In kind, metrics-server is not installed by default. Install it with:
+#
+#   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+#
+# For kind (which uses self-signed node TLS), add --kubelet-insecure-tls:
+#   kubectl patch deployment metrics-server -n kube-system \
+#     --type=json \
+#     -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+#
+# Verify: kubectl top pods -n ml-inference
+# Expected output: CPU and memory usage per pod. If this command fails with
+# "metrics not available yet", wait 60 seconds for the first scrape cycle.
+#
+# ENTERPRISE EQUIVALENT: Managed Kubernetes services (EKS, GKE, AKS) ship
+# with metrics-server pre-installed. No extra setup is needed in production.
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  # CAN BE CHANGED: Rename the HPA if the Deployment/app name changes.
+  # Example: `fraud-risk-inference-hpa`.
+  name: wine-quality-inference-hpa
+  # CAN BE CHANGED: Must match 01-namespace.yaml. Example: `ml-inference-dev`.
+  namespace: ml-inference
+  labels:
+    app.kubernetes.io/name: wine-quality-inference-api
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/part-of: k8s-mlops-platform
+    app.kubernetes.io/managed-by: kubectl
+
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    # CAN BE CHANGED: Must match the Deployment `metadata.name` in
+    # 05-inference-deployment.yaml. Example: `fraud-risk-inference-api`.
+    name: wine-quality-inference-api
+
+  # ENTERPRISE EMPHASIS: minReplicas should never be 0 for a production
+  # inference API because cold-start from zero replicas introduces unacceptable
+  # latency spikes. Keep at least 2 replicas running to absorb traffic surges
+  # without a startup latency hit and to survive a single-node failure.
+  # CAN BE CHANGED: Use `1` for the lightest local laptop test, `2` for
+  # production-style availability, or higher if the cluster has enough capacity.
+  minReplicas: 2
+
+  # maxReplicas caps the scale-out to prevent runaway pod creation from an
+  # unexpected traffic spike or a misconfigured metric. Set based on the
+  # maximum pod count the cluster can accommodate with available CPU and RAM.
+  # LOCAL SHORTCUT: 4 replicas is the lab maximum (fits in 16 GB kind cluster).
+  # ENTERPRISE EQUIVALENT: Typically set to 10–50 depending on workload, with
+  # node autoscaling (Cluster Autoscaler or Karpenter) providing more capacity.
+  # CAN BE CHANGED: Raise this when your nodes can handle more inference pods.
+  # Example: `maxReplicas: 10` in a larger staging cluster.
+  maxReplicas: 4
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Scale out when average CPU across pods exceeds 70% of the
+          # resource request (100m). At 70m CPU per pod, a new replica is added.
+          # ENTERPRISE EMPHASIS: HPA target percentage is relative to the CPU
+          # request declared in the Deployment, not the node's total CPU. This
+          # is why resource requests must always be set on inference pods.
+          # CAN BE CHANGED: Lower values scale earlier; higher values scale
+          # later. Example: `60` for faster scale-out, `80` for cost savings.
+          averageUtilization: 70
+
+  behavior:
+    scaleUp:
+      # Scale up quickly on sudden traffic spikes. Inference APIs need fast
+      # scale-out to avoid request queuing when traffic surges.
+      # CAN BE CHANGED: Lower for faster response to spikes, higher to avoid
+      # reacting to short bursts. Example: `15` for aggressive scale-up.
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          # CAN BE CHANGED: Maximum pods added per period. Example: `4` in a
+          # larger cluster with enough spare CPU and memory.
+          value: 2
+          # CAN BE CHANGED: Window for the scale-up policy. Example: `30` to
+          # allow more frequent scale-up decisions.
+          periodSeconds: 60
+
+    scaleDown:
+      # Scale down slowly to prevent flapping. If traffic drops briefly and
+      # then spikes again, a 5-minute stabilization window prevents repeatedly
+      # adding and removing pods. Each pod addition and removal takes 30–60
+      # seconds, so aggressive scale-down would degrade availability.
+      # ENTERPRISE EMPHASIS: Scale-down stabilization windows are tuned based
+      # on workload traffic patterns. Bursty workloads need longer windows.
+      # CAN BE CHANGED: Increase for bursty traffic, decrease for cost-focused
+      # local testing. Example: `600` for very bursty workloads.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          # CAN BE CHANGED: Maximum pods removed per period. Example: keep `1`
+          # for gentle scale-down, or use `2` only when traffic is predictable.
+          value: 1
+          # CAN BE CHANGED: Window for scale-down removals. Example: `300` for
+          # slower, safer scale-down.
+          periodSeconds: 120

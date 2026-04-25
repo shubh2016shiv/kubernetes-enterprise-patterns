@@ -1,0 +1,46 @@
+# =============================================================================
+# FILE:    01-namespace.yaml
+# KIND:    Namespace
+# PURPOSE: Create the ml-inference namespace to isolate the inference API and
+#          its supporting configuration from other workloads in the cluster.
+# WHEN:    ml-inferencing module — apply first, before any other manifest.
+# ENTERPRISE EQUIVALENT: In production clusters, namespaces map to environments
+#   (dev, staging, production), teams (ml-platform, data-science, backend), or
+#   security zones. Access control policies (NetworkPolicy, RBAC, PSA) are
+#   applied at the namespace level, not per pod. Namespace-level isolation is
+#   what makes it safe to run multiple teams' workloads on the same cluster.
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  # CAN BE CHANGED: Rename the namespace if you want a different isolation
+  # boundary, for example `ml-inference-dev` or `wine-quality-prod`.
+  # If changed, update every `namespace: ml-inference` field and every
+  # `kubectl -n ml-inference` command in this module.
+  name: ml-inference
+  labels:
+    # Kubernetes recommended labels: these make `kubectl` and platform tools
+    # display consistent metadata. They are not enforced by Kubernetes but are
+    # expected by tools like Helm, ArgoCD, Lens, and Grafana dashboards.
+    app.kubernetes.io/part-of: k8s-mlops-platform
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/managed-by: kubectl
+
+    # Pod Security Admission (PSA) label: enforce the baseline security profile.
+    # CAN BE CHANGED: Use `restricted` instead of `baseline` when your manifests
+    # already satisfy stricter production security rules. Example:
+    # `pod-security.kubernetes.io/enforce: restricted`.
+    #
+    # Baseline: requires non-root containers, disallows privileged pods,
+    # disallows host namespace access. This is the minimum for production.
+    #
+    # LOCAL SHORTCUT: In kind, Pod Security Admission is available but not
+    # enforced by default. This label enables enforcement for this namespace.
+    # ENTERPRISE EQUIVALENT: Enterprise clusters enforce restricted or baseline
+    # PSA at the namespace level and may use OPA Gatekeeper or Kyverno for
+    # additional custom policy enforcement.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

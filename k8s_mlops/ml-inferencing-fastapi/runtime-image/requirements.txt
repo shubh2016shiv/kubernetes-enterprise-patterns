@@ -1,0 +1,47 @@
+# =============================================================================
+# FILE:    requirements.txt
+# PURPOSE: Python dependencies for the wine quality inference API container.
+# NOTES:   Versions are pinned to a compatible range. The inference image only
+#          installs what is needed for serving — not training dependencies such
+#          as optuna, hyperopt, or dataset loading libraries.
+#
+# ENTERPRISE EMPHASIS: Inference images must be lean. A smaller image means:
+#   - Faster pull on cold node starts (critical during scale-out events).
+#   - Smaller attack surface for security scanning.
+#   - Lower container registry storage and egress cost.
+#   Training images and inference images should always be separate.
+# =============================================================================
+
+# FastAPI — the ASGI web framework for the prediction API.
+fastapi>=0.115.0,<1.0.0
+
+# Uvicorn — the ASGI server that runs the FastAPI app. The [standard] extra
+# includes uvloop (faster event loop) and httptools (faster HTTP parsing).
+# Enterprise: production containers use uvicorn[standard] or gunicorn with
+# uvicorn workers for multi-process throughput on multi-core nodes.
+uvicorn[standard]>=0.30.0,<1.0.0
+
+# Pydantic v2 — request/response schema validation and Settings parsing.
+pydantic>=2.0.0,<3.0.0
+pydantic-settings>=2.0.0,<3.0.0
+
+# MLflow — model registry client and pyfunc model loading.
+# Only the core mlflow package is needed for inference. mlflow[sklearn] adds
+# the scikit-learn flavor so the sklearn pipeline can be deserialized via pyfunc.
+mlflow[sklearn]>=2.15.0,<3.0.0
+
+# scikit-learn — required to deserialize the sklearn Pipeline artifact.
+# The version must be compatible with the version used during training.
+# A version mismatch can cause silent behavior changes or deserialization errors.
+# ENTERPRISE EMPHASIS: Pin scikit-learn to the exact version used during training
+# and validate in CI that inference and training images use the same version.
+scikit-learn>=1.5.0,<2.0.0
+
+# pandas — used by the prediction service to construct the feature DataFrame
+# that the sklearn Pipeline expects. The pipeline was trained on a named-column
+# DataFrame, so column names must match the training feature names exactly.
+pandas>=2.0.0,<3.0.0
+
+# numpy — transitive dependency of scikit-learn and pandas. Pinned to a range
+# compatible with sklearn 1.5.x.
+numpy>=1.26.0,<3.0.0
