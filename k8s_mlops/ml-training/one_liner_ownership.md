@@ -1,0 +1,1 @@
+train -> register candidate -> manager approves/promotes -> champion alias
