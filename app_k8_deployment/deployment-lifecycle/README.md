@@ -16,19 +16,19 @@ LOCAL LEARNING FLOW
   Source code changed
         |
         v
-  build-application-images.sh
+  build-application-images_1.sh
         |
         v
-  load-images-into-kind.sh
+  load-images-into-kind_2.sh
         |
         v
-  deploy-patient-record-system.sh
+  deploy-patient-record-system_3.sh
         |
         v
-  verify-patient-record-system.sh
+  verify-patient-record-system_4.sh
         |
         v
-  observe-patient-record-system.sh
+  observe-patient-record-system_5.sh
 
 
 ENTERPRISE CI/CD TRANSLATION
@@ -54,11 +54,11 @@ ENTERPRISE CI/CD TRANSLATION
 
 ## Learning steps
 
-1. Run [build-application-images.sh](build-application-images.sh) to package the FastAPI backend and nginx UI as container images.
-2. Run [load-images-into-kind.sh](load-images-into-kind.sh) so the local kind cluster can see images built on the laptop.
-3. Run [deploy-patient-record-system.sh](deploy-patient-record-system.sh) to apply namespace, config, database, backend, frontend, and platform controls.
-4. Run [verify-patient-record-system.sh](verify-patient-record-system.sh) to prove the browser-to-nginx-to-FastAPI-to-database path works.
-5. Run [observe-patient-record-system.sh](observe-patient-record-system.sh) when you want to inspect pods, logs, Services, rollouts, and events.
+1. Run [build-application-images_1.sh](build-application-images_1.sh) to package the FastAPI backend and nginx UI as container images.
+2. Run [load-images-into-kind_2.sh](load-images-into-kind_2.sh) so the local kind cluster can see images built on the laptop.
+3. Run [deploy-patient-record-system_3.sh](deploy-patient-record-system_3.sh) to apply namespace, config, database, backend, frontend, and platform controls.
+4. Run [verify-patient-record-system_4.sh](verify-patient-record-system_4.sh) to prove the browser-to-nginx-to-FastAPI-to-database path works.
+5. Run [observe-patient-record-system_5.sh](observe-patient-record-system_5.sh) when you want to inspect pods, logs, Services, rollouts, and events.
 6. Use update and operations scripts only after the base system exists.
 
 ## Plain-English Vocabulary
@@ -85,10 +85,10 @@ Run these from the repository root.
 ### First deployment
 
 ```bash
-bash app_k8_deployment/deployment-lifecycle/build-application-images.sh
-bash app_k8_deployment/deployment-lifecycle/load-images-into-kind.sh
-bash app_k8_deployment/deployment-lifecycle/deploy-patient-record-system.sh
-bash app_k8_deployment/deployment-lifecycle/verify-patient-record-system.sh
+bash app_k8_deployment/deployment-lifecycle/build-application-images_1.sh
+bash app_k8_deployment/deployment-lifecycle/load-images-into-kind_2.sh
+bash app_k8_deployment/deployment-lifecycle/deploy-patient-record-system_3.sh
+bash app_k8_deployment/deployment-lifecycle/verify-patient-record-system_4.sh
 ```
 
 What you should see:

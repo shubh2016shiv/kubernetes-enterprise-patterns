@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE:    cleanup-patient-record-system.sh
+# FILE:    cleanup-patient-record-system_12.sh
 # PURPOSE: Remove the patient record application namespace and all resources.
-# USAGE:   bash app_k8_deployment/deployment-lifecycle/cleanup-patient-record-system.sh
+# USAGE:   bash app_k8_deployment/deployment-lifecycle/cleanup-patient-record-system_12.sh
 # WHEN:    Run when the learner wants to reset this application track.
 # PREREQS: kubectl points at the local learning cluster.
 # OUTPUT:  Namespace deletion starts; PVC data in that namespace is removed.
@@ -23,6 +23,10 @@ set -euo pipefail
 #   - Confirm deletion status.
 # ---------------------------------------------------------------------------
 
+# CAN BE CHANGED: Namespace name being deleted. Must match NAMESPACE in all other scripts
+# and the namespace value in YAML files. Example: `patient-intake-system`.
+# If changed, update deploy-patient-record-system_3.sh, verify-patient-record-system_4.sh,
+# and all YAML manifests in kubernetes-manifests/.
 NAMESPACE="patient-record-system"
 
 section() {

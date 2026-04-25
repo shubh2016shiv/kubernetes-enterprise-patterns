@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE:    deploy-patient-record-system.sh
+# FILE:    deploy-patient-record-system_3.sh
 # PURPOSE: Deploy the full frontend, FastAPI backend, and SQL database stack.
-# USAGE:   bash app_k8_deployment/deployment-lifecycle/deploy-patient-record-system.sh
+# USAGE:   bash app_k8_deployment/deployment-lifecycle/deploy-patient-record-system_3.sh
 # WHEN:    Run after images are built and loaded into kind.
 # PREREQS: kubectl points at kind-local-enterprise-dev and local images exist.
 # OUTPUT:  The patient intake UI is reachable at http://localhost:30001.
@@ -35,6 +35,9 @@ set -euo pipefail
 #   - Print the first operational checks.
 # ---------------------------------------------------------------------------
 
+# CAN BE CHANGED: Namespace name. Example: `patient-intake-system` or `healthcare-api`.
+# If changed, must also update the namespace name in all YAML files in kubernetes-manifests/
+# and all NAMESPACE references in other scripts in this directory.
 NAMESPACE="patient-record-system"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODULE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE:    build-application-images.sh
+# FILE:    build-application-images_1.sh
 # PURPOSE: Build the frontend and backend container images for the 3-tier app.
-# USAGE:   bash app_k8_deployment/deployment-lifecycle/build-application-images.sh
+# USAGE:   bash app_k8_deployment/deployment-lifecycle/build-application-images_1.sh
 # WHEN:    Run before loading images into kind or deploying the application.
 # PREREQS: Docker Desktop is running with WSL2 integration enabled.
 # OUTPUT:  Local images patient-record-api:1.0.0 and patient-intake-ui:1.0.0.
@@ -28,7 +28,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODULE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# CAN BE CHANGED: Backend image name and tag. Example: `healthcare-api:2.0.0`.
+# If changed, update all references in load-images-into-kind_2.sh, deploy-patient-record-system_3.sh,
+# and 08-backend-deployment.yaml. Format: imagename:semver
 API_IMAGE="${API_IMAGE:-patient-record-api:1.0.0}"
+# CAN BE CHANGED: Frontend image name and tag. Example: `patient-ui:2.0.0`.
+# If changed, update load-images-into-kind_2.sh, deploy-patient-record-system_3.sh,
+# and 10-frontend-deployment.yaml. Format: imagename:semver
 UI_IMAGE="${UI_IMAGE:-patient-intake-ui:1.0.0}"
 
 section() {

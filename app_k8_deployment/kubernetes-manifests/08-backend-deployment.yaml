@@ -12,7 +12,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  # CAN BE CHANGED: Deployment name and Service selector.
+  # Example: `healthcare-api-backend`. If changed, update 09-backend-service.yaml
+  # and the API_IMAGE in build-application-images_1.sh must reference this.
   name: patient-record-api
+  # CAN BE CHANGED: Must match namespace in 00-namespace.yaml and NAMESPACE in scripts.
   namespace: patient-record-system
   labels:
     app: patient-record-api
@@ -25,6 +29,7 @@ spec:
   # ENTERPRISE EMPHASIS: Two replicas are the minimum useful local pattern for
   # a stateless API. Real production often starts at three or more to survive
   # node drains and availability-zone failures.
+  # CAN BE CHANGED: Example `1` for single-replica testing or `3` for production pattern.
   replicas: 2
   revisionHistoryLimit: 5
   selector:
@@ -82,7 +87,11 @@ spec:
           # ENTERPRISE EMPHASIS: This local tag is built on the learner machine
           # and loaded into kind. Production CI/CD would push an immutable tag
           # such as registry.example.com/healthcare/patient-record-api:git-sha.
+          # CAN BE CHANGED: Backend image and tag. Example: `healthcare-api:2.0.0`.
+          # Must match API_IMAGE in build-application-images_1.sh and load-images-into-kind_2.sh.
           image: patient-record-api:1.0.0
+          # CAN BE CHANGED: Use `Always` if pulling from a remote registry, `IfNotPresent`
+          # for local kind images. Local development uses IfNotPresent.
           imagePullPolicy: IfNotPresent
           securityContext:
             # ENTERPRISE EMPHASIS: Drop Linux capabilities and make the root

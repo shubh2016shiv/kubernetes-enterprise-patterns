@@ -11,10 +11,17 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  # CAN BE CHANGED: Example `patient-intake-system` or `healthcare-api`.
+  # If changed, must update NAMESPACE in all scripts in deployment-lifecycle/ and
+  # the namespace value in all other manifests (01-resource-governance.yaml through 17-observability-service-monitor.yaml).
   name: patient-record-system
   labels:
+    # CAN BE CHANGED: Application name. Example `patient-intake-ui` or `healthcare-records-app`.
+    # If changed, update the same label in all other manifests.
     app.kubernetes.io/name: patient-record-system
     app.kubernetes.io/part-of: healthcare-platform-learning
+    # CAN BE CHANGED: Environment label. Example `production`, `staging`, or `local-development`.
+    # Used for policy enforcement and cost attribution.
     environment: local-kind
   annotations:
     description: "Namespace for the enterprise-style patient record 3-tier deployment"

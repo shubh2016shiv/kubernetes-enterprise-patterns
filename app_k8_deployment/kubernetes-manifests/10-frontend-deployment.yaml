@@ -11,7 +11,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  # CAN BE CHANGED: Deployment and Service selector name. Example: `patient-portal-ui`.
+  # If changed, update 11-frontend-service.yaml and UI_IMAGE in build-application-images_1.sh.
   name: patient-intake-ui
+  # CAN BE CHANGED: Must match namespace in 00-namespace.yaml and NAMESPACE in scripts.
   namespace: patient-record-system
   labels:
     app: patient-intake-ui
@@ -21,7 +24,11 @@ metadata:
     app.kubernetes.io/part-of: patient-record-system
     app.kubernetes.io/version: "1.0.0"
 spec:
+  # CAN BE CHANGED: Example `1` for testing or `3` for production HA.
+  # Replica count affects resource usage and availability during updates.
   replicas: 2
+  # CAN BE CHANGED: Number of prior ReplicaSet revisions to keep for rollback.
+  # Example: `3` for quick rollback, `10` for extended rollback history.
   revisionHistoryLimit: 5
   selector:
     matchLabels:
@@ -59,7 +66,11 @@ spec:
               app: patient-intake-ui
       containers:
         - name: ui
+          # CAN BE CHANGED: Frontend image and tag. Example: `patient-portal-ui:2.0.0`.
+          # Must match UI_IMAGE in build-application-images_1.sh and referenced in
+          # load-images-into-kind_2.sh. Use semver format: imagename:X.Y.Z
           image: patient-intake-ui:1.0.0
+          # CAN BE CHANGED: Use `Always` for remote registries, `IfNotPresent` for local kind.
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

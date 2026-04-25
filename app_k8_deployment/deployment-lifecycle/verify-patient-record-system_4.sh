@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE:    verify-patient-record-system.sh
+# FILE:    verify-patient-record-system_4.sh
 # PURPOSE: Verify pods, Services, probes, database connectivity, and form submit.
-# USAGE:   bash app_k8_deployment/deployment-lifecycle/verify-patient-record-system.sh
+# USAGE:   bash app_k8_deployment/deployment-lifecycle/verify-patient-record-system_4.sh
 # WHEN:    Run after deployment or after any rollout/rollback.
 # PREREQS: The patient-record-system namespace exists and workloads are running.
 # OUTPUT:  Operational evidence that all three tiers are connected correctly.
@@ -29,7 +29,13 @@ set -euo pipefail
 #   - Print next checks if the workflow fails.
 # ---------------------------------------------------------------------------
 
+# CAN BE CHANGED: Namespace name. Must match NAMESPACE in deploy-patient-record-system_3.sh
+# and the namespace value in all YAML files. Example: `patient-intake-system`.
 NAMESPACE="patient-record-system"
+# CAN BE CHANGED: Base URL for health checks and form submission tests.
+# If the NodePort or host port changes in kind-cluster-config.yaml, update this.
+# Example: http://localhost:8080 (if you remap port 30001 to 8080).
+# Override via environment: BASE_URL=http://localhost:8080 bash verify-patient-record-system_4.sh
 BASE_URL="${BASE_URL:-http://localhost:30001}"
 
 section() {
