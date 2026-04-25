@@ -5,7 +5,7 @@
 #          that the inference API returns the expected prediction from the exact
 #          model version recorded in the ConfigMap.
 # USAGE:   From WSL2, inside kubernetes-manifests/:
-#            bash test-prediction.sh
+#            bash test-prediction_4.sh
 # WHEN:    Run after apply-inference-stack_3.sh, after every model rollout, and
 #          from rollout-approved-model.sh before declaring a release complete.
 # PREREQS: Inference stack deployed, Service has ready endpoints, and the

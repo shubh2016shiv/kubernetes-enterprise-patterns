@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE:    destroy-inference-stack_4.sh
+# FILE:    destroy-inference-stack_6.sh
 # PURPOSE: Delete the local FastAPI inference stack so the learner can start
 #          fresh without guessing which Kubernetes resources exist.
 # USAGE:   From WSL2, inside kubernetes-manifests/:
-#            CONFIRM_DELETE_INFERENCE_STACK=ml-inference bash destroy-inference-stack_4.sh
+#            CONFIRM_DELETE_INFERENCE_STACK=ml-inference bash destroy-inference-stack_6.sh
 # WHEN:    Run only when you intentionally want to remove the deployed inference
 #          API, Service, ConfigMap, Secret placeholder, HPA, and namespace.
 # PREREQS: kubectl installed, kubectl context pointed at the intended cluster.
@@ -65,7 +65,11 @@ require_cleanup_confirmation() {
     echo "Namespace targeted: ${NAMESPACE}"
     echo
     echo "Run again with an explicit confirmation:"
-    echo "  CONFIRM_DELETE_INFERENCE_STACK=${NAMESPACE} bash destroy-inference-stack_4.sh"
+    echo "  CONFIRM_DELETE_INFERENCE_STACK=${NAMESPACE} bash destroy-inference-stack_6.sh"
+    echo
+    echo "Bash note: VAR=value before a command sets that variable only for"
+    echo "that one command. Here it proves you intentionally typed the namespace"
+    echo "that will be deleted."
     echo
     echo "What will be removed from Kubernetes:"
     echo "  - Namespace: ${NAMESPACE}"
@@ -112,7 +116,7 @@ delete_kind_cluster_if_requested() {
     echo "Cluster deletion skipped."
     echo "To also delete the local kind cluster, run:"
     echo "  DELETE_KIND_CLUSTER=true CONFIRM_DELETE_KIND_CLUSTER=${KIND_CLUSTER_NAME} \\"
-    echo "  CONFIRM_DELETE_INFERENCE_STACK=${NAMESPACE} bash destroy-inference-stack_4.sh"
+    echo "  CONFIRM_DELETE_INFERENCE_STACK=${NAMESPACE} bash destroy-inference-stack_6.sh"
     return
   fi
 
@@ -126,7 +130,7 @@ delete_kind_cluster_if_requested() {
     echo
     echo "Run again with:"
     echo "  DELETE_KIND_CLUSTER=true CONFIRM_DELETE_KIND_CLUSTER=${KIND_CLUSTER_NAME} \\"
-    echo "  CONFIRM_DELETE_INFERENCE_STACK=${NAMESPACE} bash destroy-inference-stack_4.sh"
+    echo "  CONFIRM_DELETE_INFERENCE_STACK=${NAMESPACE} bash destroy-inference-stack_6.sh"
     exit 1
   fi
 
@@ -147,7 +151,7 @@ delete_local_image_if_requested() {
     echo "Local Docker image deletion skipped."
     echo "To also remove the host image, run:"
     echo "  DELETE_LOCAL_IMAGE=true CONFIRM_DELETE_INFERENCE_STACK=${NAMESPACE} \\"
-    echo "  bash destroy-inference-stack_4.sh"
+    echo "  bash destroy-inference-stack_6.sh"
     return
   fi
 

@@ -240,8 +240,8 @@ if kubectl rollout status deployment/wine-quality-inference-api \
   echo ""
   echo "========================================================"
   echo "  Inference stack is live."
-  echo "  Run verify-inference-stack.sh to confirm pod health."
-  echo "  Run test-prediction.sh to verify the /predict endpoint."
+  echo "  Run verify-inference-stack_5.sh to confirm pod health."
+  echo "  Run test-prediction_4.sh to verify the /predict endpoint."
   echo "========================================================"
 else
   echo ""

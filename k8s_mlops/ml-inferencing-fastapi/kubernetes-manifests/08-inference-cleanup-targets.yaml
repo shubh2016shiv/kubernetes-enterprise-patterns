@@ -3,7 +3,7 @@
 # KIND:    List
 # PURPOSE: Declare the inference-owned Kubernetes resources that can be deleted
 #          when the learner wants to reset the FastAPI inference stack.
-# WHEN:    Use only with destroy-inference-stack_4.sh or `kubectl delete -f`.
+# WHEN:    Use only with destroy-inference-stack_6.sh or `kubectl delete -f`.
 # ENTERPRISE EQUIVALENT: In production, teardown is usually handled by GitOps
 #   pruning, a Helm uninstall, or an environment-destroy pipeline with approval
 #   gates. This local lab keeps the delete targets explicit so the learner can

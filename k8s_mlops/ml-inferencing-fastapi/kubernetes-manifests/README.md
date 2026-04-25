@@ -130,9 +130,14 @@ This is destructive. It deletes the `ml-inference` namespace and the inference
 resources inside it. It does not delete the kind cluster, MLflow model artifacts,
 source files, or local Docker images by default.
 
+The `CONFIRM_DELETE_INFERENCE_STACK=ml-inference` part is a Bash environment
+variable set only for this one command. It is the safety confirmation. The
+script refuses to delete unless that value exactly matches the namespace it will
+remove.
+
 ```bash
 cd /mnt/d/Generative\ AI\ Portfolio\ Projects/kubernetes_architure/k8s_mlops/ml-inferencing-fastapi/kubernetes-manifests
-CONFIRM_DELETE_INFERENCE_STACK=ml-inference bash destroy-inference-stack_4.sh
+CONFIRM_DELETE_INFERENCE_STACK=ml-inference bash destroy-inference-stack_6.sh
 ```
 
 What you should see:
@@ -154,7 +159,7 @@ all cluster-local volumes. This affects more than inference.
 DELETE_KIND_CLUSTER=true \
 CONFIRM_DELETE_KIND_CLUSTER=local-enterprise-dev \
 CONFIRM_DELETE_INFERENCE_STACK=ml-inference \
-bash destroy-inference-stack_4.sh
+bash destroy-inference-stack_6.sh
 ```
 
 **Optional: also delete the local inference container image**
@@ -162,5 +167,5 @@ bash destroy-inference-stack_4.sh
 ```bash
 DELETE_LOCAL_IMAGE=true \
 CONFIRM_DELETE_INFERENCE_STACK=ml-inference \
-bash destroy-inference-stack_4.sh
+bash destroy-inference-stack_6.sh
 ```

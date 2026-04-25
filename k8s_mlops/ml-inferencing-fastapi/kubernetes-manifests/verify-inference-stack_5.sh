@@ -4,7 +4,7 @@
 # PURPOSE: Inspect the deployed inference stack and surface any unhealthy state.
 #          Shows pod status, readiness, deployed model version, and probe results.
 # USAGE:   From WSL2, inside kubernetes-manifests/:
-#            bash verify-inference-stack.sh
+#            bash verify-inference-stack_5.sh
 # WHEN:    Run after apply-inference-stack_3.sh completes, or during debugging.
 # PREREQS: Inference stack deployed in ml-inference namespace.
 # OUTPUT:  Table of pod status, model version, readiness probe result.
@@ -139,5 +139,5 @@ echo "  Install: kubectl apply -f https://github.com/kubernetes-sigs/metrics-ser
 echo ""
 echo "========================================================"
 echo "  Verification complete."
-echo "  Run test-prediction.sh to verify the /predict endpoint."
+echo "  Run test-prediction_4.sh to verify the /predict endpoint."
 echo "========================================================"

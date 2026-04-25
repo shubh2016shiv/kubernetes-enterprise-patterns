@@ -198,5 +198,5 @@ run_bash_script "${APPLY_INFERENCE_STACK_SCRIPT}" "kubernetes-manifests/apply-in
 echo
 echo "Local inference deployment flow completed."
 echo "Recommended next checks:"
-echo "  bash verify-inference-stack.sh"
-echo "  bash test-prediction.sh"
+echo "  bash verify-inference-stack_5.sh"
+echo "  bash test-prediction_4.sh"
