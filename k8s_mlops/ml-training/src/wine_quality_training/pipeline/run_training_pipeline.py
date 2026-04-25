@@ -48,6 +48,9 @@ from wine_quality_training.model_registry.publish_candidate_to_mlflow import (
 from wine_quality_training.pipeline.pipeline_run_config import (
     load_pipeline_run_config,
 )
+from wine_quality_training.shared.mlflow_experiment_manager import (
+    ensure_mlflow_experiment_ready,
+)
 from wine_quality_training.training.wine_quality_model_trainer import (
     MlflowTrialTrackingConfig,
     run_hyperparameter_search_and_train,
@@ -111,6 +114,7 @@ def main() -> None:
             env_config.pipeline_config_path,
             optuna_n_trials_override=env_config.optuna_n_trials,
             random_seed_override=env_config.random_seed,
+            experiment_name_override=env_config.mlflow_experiment_name,
         )
     except (FileNotFoundError, KeyError) as exc:
         logger.error(f"Pipeline config load error: {exc}")
@@ -135,6 +139,21 @@ def main() -> None:
 
     mlflow_trial_tracking = None
     if env_config.publishes_to_mlflow:
+        experiment_resolution = ensure_mlflow_experiment_ready(
+            tracking_uri=env_config.mlflow_tracking_uri,
+            experiment_name=pipeline_config.experiment_name,
+            deleted_experiment_policy=env_config.mlflow_deleted_experiment_policy,
+        )
+        logger.info(
+            "MLflow experiment preflight complete",
+            extra={
+                "tracking_uri": env_config.mlflow_tracking_uri,
+                "experiment_name": experiment_resolution.experiment_name,
+                "experiment_id": experiment_resolution.experiment_id,
+                "resolution_action": experiment_resolution.resolution_action,
+            },
+        )
+
         # ENTERPRISE EMPHASIS: The same run_group_id is attached to every
         # hyperparameter trial and to the final candidate model version. This is
         # how reviewers connect "why this model won" to "which model is being
@@ -145,6 +164,7 @@ def main() -> None:
             run_group_id=training_session_id,
             run_reason=env_config.training_run_reason,
             triggered_by=env_config.training_triggered_by,
+            deleted_experiment_policy=env_config.mlflow_deleted_experiment_policy,
         )
 
     # -------------------------------------------------------------------------
@@ -246,6 +266,7 @@ def main() -> None:
             experiment_name=pipeline_config.experiment_name,
             registered_model_name=env_config.mlflow_registered_model_name,
             candidate_alias=env_config.mlflow_candidate_alias,
+            deleted_experiment_policy=env_config.mlflow_deleted_experiment_policy,
             run_reason=env_config.training_run_reason,
             triggered_by=env_config.training_triggered_by,
             run_group_id=training_session_id,

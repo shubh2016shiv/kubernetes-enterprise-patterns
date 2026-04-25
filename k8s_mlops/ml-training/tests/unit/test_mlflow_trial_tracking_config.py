@@ -17,6 +17,7 @@ def test_mlflow_trial_tracking_config_carries_review_metadata():
         run_group_id="training-abc123",
         run_reason="manual candidate run",
         triggered_by="shubham",
+        deleted_experiment_policy="restore",
     )
 
     assert config.tracking_uri == "http://127.0.0.1:5000"
@@ -24,3 +25,4 @@ def test_mlflow_trial_tracking_config_carries_review_metadata():
     assert config.run_group_id == "training-abc123"
     assert config.run_reason == "manual candidate run"
     assert config.triggered_by == "shubham"
+    assert config.deleted_experiment_policy == "restore"

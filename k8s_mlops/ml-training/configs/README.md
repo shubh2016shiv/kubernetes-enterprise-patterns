@@ -111,7 +111,9 @@ which field to change for the most common team scenarios.
 | Change the number of CV folds                   | `training_pipeline.yaml` | `cv_folds`                    |
 | Change the Optuna search default (shared)       | `training_pipeline.yaml` | `optuna.n_trials`             |
 | Change the optimization metric                  | `training_pipeline.yaml` | `optuna.metric`               |
-| Change the MLflow experiment name              | `training_pipeline.yaml` | `experiment_name`             |
+| Change the shared MLflow experiment name       | `training_pipeline.yaml` | `experiment_name`             |
+| Change the MLflow experiment for one run only  | `.env`              | `MLFLOW_EXPERIMENT_NAME`          |
+| Choose deleted-experiment recovery behavior    | `.env`              | `MLFLOW_DELETED_EXPERIMENT_POLICY` |
 | Set a per-run trial limit in Kubernetes         | Job env injection   | `OPTUNA_N_TRIALS` env var          |
 | Point to a different pipeline config file       | `.env` or Job spec  | `PIPELINE_CONFIG_PATH`            |
 | Change the model name in the MLflow registry    | `.env`              | `MLFLOW_REGISTERED_MODEL_NAME`     |
@@ -156,6 +158,18 @@ TRAINING_RUNTIME_MODE
       at Phase 4 (first MLflow call) with a connection error, after the
       expensive hyperparameter search has already started.
       Fix: always run start-mlflow-server.sh BEFORE submitting a candidate run.
+
+      Deleted experiment handling:
+        MLFLOW_EXPERIMENT_NAME            -> optional one-run override
+        MLFLOW_DELETED_EXPERIMENT_POLICY  -> restore or fail
+
+      Why this exists:
+        In a shared MLflow server, an experiment can be soft-deleted by an
+        administrator or another teammate with elevated access. The default
+        `restore` policy brings that experiment back automatically so existing
+        teammates do not fail just because the experiment moved to the deleted
+        state. Use `fail` only when your team wants strict governance and does
+        not allow automatic restore.
 ```
 
 ---
@@ -174,6 +188,8 @@ by Kubernetes in production. They override anything set in `training_pipeline.ya
 | `RANDOM_SEED` | int | `42` | Seed for reproducible train/test split and model weight initialisation. Overrides `random_seed` in YAML. | Only when intentionally running a different random design. Document the change. |
 | `TRAINING_RUNTIME_MODE` | Literal | `local_artifact_only` | Controls whether MLflow is contacted. Two valid values: `local_artifact_only` (no MLflow) or `mlflow_candidate_review` (full MLflow tracking + registration). | Set to `mlflow_candidate_review` for any run that should be visible to the team. |
 | `MLFLOW_TRACKING_URI` | str | `sqlite:///mlflow.db` | URI of the MLflow Tracking server. For local development: `http://127.0.0.1:5000`. Ignored when `TRAINING_RUNTIME_MODE=local_artifact_only`. | Change only if your MLflow server runs on a different address or port. |
+| `MLFLOW_EXPERIMENT_NAME` | str or empty | `None` | Optional per-run override for the MLflow experiment name. When empty, the pipeline uses `experiment_name` from `training_pipeline.yaml`. | Use this when you want your own run to land in a different experiment without editing the shared YAML. |
+| `MLFLOW_DELETED_EXPERIMENT_POLICY` | Literal | `restore` | What to do if the chosen experiment exists only in MLflow's deleted state. `restore` reactivates it automatically. `fail` exits early with an actionable error. | Leave at `restore` for team resilience. Set to `fail` only when strict governance requires human review before restore. |
 | `MLFLOW_REGISTERED_MODEL_NAME` | str | `wine-quality-classifier` | Name under which the model is registered in the MLflow Model Registry. All versions of this model share this name. | Change only when starting a new model lineage (e.g., a new architecture that should not share version history with the old one). |
 | `MLFLOW_CANDIDATE_ALIAS` | str | `candidate` | Mutable alias applied to the latest model version that passed the promotion gate. Reviewers look up `@candidate` in the MLflow UI to find the model waiting for approval. | Rarely changed. Only if your team uses a different alias convention. |
 | `TRAINING_TRIGGERED_BY` | str | `local-user` | Name of the person, CI system, or Kubernetes controller that triggered this run. Written as an MLflow tag for audit. | **Always set this to your own name** before a local candidate run. |
@@ -246,6 +262,29 @@ server is not running.
 bash training-control-plane/start-mlflow-server.sh
 ```
 Wait until you see `Listening at: http://127.0.0.1:5000`, then resubmit the run.
+
+---
+
+### Mistake 2b: MLflow says the experiment exists in the deleted state
+
+**Symptom**: The pipeline reaches the first MLflow call and fails with an error
+similar to `Cannot set a deleted experiment ... as the active experiment`.
+
+**Cause**: The experiment name still exists in MLflow, but its lifecycle state
+is `deleted`. MLflow blocks new runs from reusing that name until it is restored.
+
+**Fix**:
+- Preferred: keep `MLFLOW_DELETED_EXPERIMENT_POLICY=restore` so the pipeline
+  restores the experiment automatically and continues.
+- If you want a different experiment just for your run, set:
+  `MLFLOW_EXPERIMENT_NAME=<new-name>`
+- If your team requires manual recovery, set
+  `MLFLOW_DELETED_EXPERIMENT_POLICY=fail` and restore the experiment in MLflow
+  before rerunning.
+
+**Enterprise lesson**: Shared tracking backends need application-side lifecycle
+guards. Otherwise an administrative cleanup action can break unrelated teammate
+workflows.
 
 ---
 

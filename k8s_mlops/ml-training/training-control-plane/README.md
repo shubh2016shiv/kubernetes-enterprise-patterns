@@ -204,12 +204,43 @@ Runtime modes:
 |---|---|---|
 | Use `TRAINING_RUNTIME_MODE` in `.env` at the module root | Inject the same mode from Kubernetes ConfigMaps, GitHub Actions inputs, or an internal platform form | The platform, not an ad hoc CLI flag, declares whether a run is local-only or reviewable |
 | Use `.env` for local runtime values | Inject the same keys from Kubernetes ConfigMaps, Secrets, GitHub Actions inputs, or an internal platform form | Developers need easy local runs; shared environments need auditable managed config |
-| Start MLflow with SQLite and local artifact folders | Run MLflow behind an internal URL with PostgreSQL or MySQL plus S3, Google Cloud Storage, or Azure Blob Storage | Teams need durable storage, access control, backups, and shared access |
+| Run `mlflow server --serve-artifacts --artifacts-destination ./mlflow-tracking/artifacts` | Run MLflow with `--artifacts-destination s3://my-bucket/mlflow/` and `--serve-artifacts`, backed by PostgreSQL or MySQL | The artifact proxy pattern is identical; only the destination storage changes from local disk to object store |
 | Run training from GitHub Actions for the lab | Trigger a Kubernetes Job, Argo Workflows DAG, or Kubeflow Pipeline from GitHub Actions | Real training may need more CPU, memory, GPUs, retries, and cluster scheduling |
 | Use `workflow_dispatch` for manual teammate runs | Use a self-service portal, GitHub Actions manual run, or Argo Workflows submit form | The important pattern is controlled self-service with audit logs |
 | Use `candidate` alias for review | Use `candidate`, `challenger`, and `champion` aliases with model version tags | MLflow stages are deprecated; aliases and tags are more flexible |
 | Use SQLite for local MLflow metadata | Use PostgreSQL or MySQL for shared MLflow metadata | SQLite is excellent for a laptop lab; shared teams need concurrent access and backups |
 | Upload CI artifacts from GitHub Actions | Store artifacts in S3/GCS/Azure and keep MLflow as the source of truth | CI runners are temporary; object storage is durable |
+
+## Understanding the MLflow UI artifact layout
+
+When you open a registered model version in the MLflow UI and click the
+**Artifacts** tab, you may see an empty page. This is expected and is not a bug
+in the training pipeline.
+
+MLflow 3.x has two distinct artifact surfaces:
+
+```text
+Run detail page → Artifacts tab
+  Shows everything logged with mlflow.log_artifacts() during the run.
+  This is where your artifact_bundle/ (model.joblib, metrics.json,
+  feature_schema.json, run_manifest.json, training_config.json) lives.
+  Navigate to: Experiments → wine-quality-cultivar-classification-v1 →
+               select the candidate run → Artifacts tab.
+
+LoggedModel detail page → Artifacts tab
+  Shows artifacts explicitly linked to the LoggedModel entity via the
+  MLflow 3.x LoggedModel artifact API. mlflow.sklearn.log_model() creates
+  the sklearn model files under run_artifacts/model/ but does not
+  additionally link them to the LoggedModel artifact surface.
+  This tab is intentionally empty in our setup because we use the run-level
+  artifact_bundle/ as the single source of truth, which is the correct
+  enterprise pattern (one auditable bundle per run, not scattered across
+  multiple MLflow surfaces).
+```
+
+To verify the full artifact bundle exists, open the **source run** from the
+registered model version page, then click the **Artifacts** tab. You should
+see `artifact_bundle/` with all five files.
 
 ## What to check if something goes wrong
 
@@ -268,3 +299,30 @@ pipeline.
 If the model appears but no `candidate` alias is set, inspect the model version
 tag `review_status`. A failed metric gate is still logged for audit, but it is
 not assigned the `candidate` alias.
+
+If loading `models:/wine-quality-classifier/1` from Windows fails with a path
+error like `D:\mnt\d\...` or a permission denied on a Linux-style path, the
+server was started without `--serve-artifacts`. That flag is now present in
+`start-mlflow-server.sh`. Stop the running server, restart it with the updated
+script, then re-run the training pipeline to register a new model version with
+a correct `mlflow-artifacts:/` artifact URI:
+
+```bash
+# Terminal 1 — WSL2: restart the server
+bash training-control-plane/start-mlflow-server.sh
+
+# Terminal 2 — WSL2: re-run the pipeline to create a clean artifact URI
+cd /mnt/d/Generative\ AI\ Portfolio\ Projects/kubernetes_architure/k8s_mlops/ml-training
+uv run --extra tracking run-training-pipeline
+```
+
+After the re-run, `models:/wine-quality-classifier/2` (or the next version
+number) will have an `mlflow-artifacts:/` artifact URI that resolves correctly
+from Windows, WSL2, and containers alike.
+
+Why this happens without --serve-artifacts:
+The MLflow server runs in WSL2 and records artifact paths as Linux absolute
+paths such as `/mnt/d/...`. A Windows Python client interpreting the same
+path string reads it as `D:\mnt\d\...`, which does not exist. With
+`--serve-artifacts` the client only ever uses `http://127.0.0.1:5000` as
+the artifact endpoint and never touches the server filesystem directly.

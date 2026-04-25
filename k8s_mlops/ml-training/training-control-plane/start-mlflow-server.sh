@@ -109,16 +109,48 @@ cd "${PROJECT_ROOT}"
 
 echo "[INFO] Starting MLflow server"
 echo "[INFO] Tracking URI for training runs: http://127.0.0.1:5000"
+echo "[INFO] Artifact proxy:  http://127.0.0.1:5000/api/2.0/mlflow-artifacts/"
 echo "[INFO] Press Ctrl+C to stop the server"
 echo "[INFO] First run note: uv may spend a few minutes installing MLflow."
 echo "[INFO] Open the browser only after you see a line like:"
 echo "       Listening at: http://127.0.0.1:5000"
+
+# ---------------------------------------------------------------------------
+# Why --serve-artifacts matters for this Windows + WSL2 lab:
+#
+#   Without --serve-artifacts, MLflow stores artifacts as raw filesystem paths
+#   such as /mnt/d/... (a WSL2 Linux path). When a Windows Python client or
+#   the serving pipeline later resolves the registered model URI
+#   (models:/wine-quality-classifier/1), it tries to open that Linux path on
+#   Windows and gets D:\mnt\d\... which does not exist. Artifact downloads
+#   fail silently or with a confusing permission error.
+#
+#   With --serve-artifacts, the server becomes the artifact proxy. The artifact
+#   URI in every run record becomes mlflow-artifacts:/ (an HTTP-relative
+#   scheme). Any client -- Windows, WSL2, or a container -- fetches artifacts
+#   through http://127.0.0.1:5000 without ever needing direct filesystem
+#   access. The server is the only process that touches the local artifact
+#   directory.
+#
+#   --artifacts-destination tells the server WHERE to store artifact bytes on
+#   the server's own filesystem. This replaces --default-artifact-root when
+#   artifact proxying is active. The server maps the HTTP artifact URL to this
+#   local directory internally.
+#
+# ENTERPRISE EQUIVALENT:
+#   In production, --artifacts-destination is replaced by an S3 bucket URI,
+#   a Google Cloud Storage bucket, or an Azure Blob Storage container. The
+#   serving pipeline still fetches artifacts from the MLflow tracking URI --
+#   the storage backend is completely transparent to it. This is exactly why
+#   the pattern below maps cleanly to an enterprise deployment.
+# ---------------------------------------------------------------------------
 
 # Expected output:
 #   [INFO] Starting gunicorn ...
 #   Listening at: http://127.0.0.1:5000
 exec uv run --extra tracking mlflow server \
   --backend-store-uri "${BACKEND_URI}" \
-  --default-artifact-root "${ARTIFACT_ROOT}" \
+  --artifacts-destination "${ARTIFACT_ROOT}" \
+  --serve-artifacts \
   --host 127.0.0.1 \
   --port 5000

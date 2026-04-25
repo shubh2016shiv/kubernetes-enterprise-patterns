@@ -55,6 +55,7 @@ def load_pipeline_run_config(
     *,
     optuna_n_trials_override: int | None = None,
     random_seed_override: int | None = None,
+    experiment_name_override: str | None = None,
 ) -> PipelineRunConfig:
     """
     Parse the YAML config file and return a typed, immutable config object.
@@ -65,6 +66,10 @@ def load_pipeline_run_config(
                                   settings. Used by CI, Kubernetes Jobs, and
                                   local env files.
         random_seed_override: Runtime override from central Pydantic settings.
+        experiment_name_override: Optional runtime override for the MLflow
+                                  experiment name. This gives one teammate a
+                                  safe way to redirect a run without editing
+                                  the shared YAML tracked in Git.
 
     Returns:
         PipelineRunConfig populated from file values.
@@ -98,7 +103,11 @@ def load_pipeline_run_config(
     )
 
     return PipelineRunConfig(
-        experiment_name=raw["experiment_name"],
+        # ENTERPRISE EMPHASIS: Experiment names sometimes need to change for a
+        # one-off run or emergency recovery without editing the team-shared
+        # ConfigMap source file. The override remains explicit and traceable
+        # because the resolved name is logged and written into artifacts.
+        experiment_name=experiment_name_override or raw["experiment_name"],
         model_family_names=raw["model_families"],
         test_size=float(raw.get("test_size", 0.2)),
         random_seed=int(

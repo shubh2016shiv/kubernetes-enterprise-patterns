@@ -22,6 +22,8 @@ PIPELINE_CONFIG_PATH={config_file.as_posix()}
 ARTIFACT_STORE_ROOT={tmp_path.as_posix()}/artifacts
 TRAINING_RUNTIME_MODE=mlflow_candidate_review
 MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+MLFLOW_EXPERIMENT_NAME=wine-quality-cultivar-classification-recovery
+MLFLOW_DELETED_EXPERIMENT_POLICY=fail
 OPTUNA_N_TRIALS=5
 TRAINING_TRIGGERED_BY=shubham
 TRAINING_RUN_REASON=manual candidate run from test
@@ -34,6 +36,8 @@ TRAINING_RUN_REASON=manual candidate run from test
     assert settings.training_runtime_mode == "mlflow_candidate_review"
     assert settings.publishes_to_mlflow is True
     assert settings.mlflow_tracking_uri == "http://127.0.0.1:5000"
+    assert settings.mlflow_experiment_name == "wine-quality-cultivar-classification-recovery"
+    assert settings.mlflow_deleted_experiment_policy == "fail"
     assert settings.optuna_n_trials == 5
     assert settings.training_triggered_by == "shubham"
 

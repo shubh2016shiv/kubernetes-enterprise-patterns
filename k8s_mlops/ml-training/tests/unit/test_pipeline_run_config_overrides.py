@@ -28,6 +28,17 @@ def test_random_seed_can_be_overridden_by_runtime_settings(tmp_path):
     assert config.random_seed == 123
 
 
+def test_experiment_name_can_be_overridden_by_runtime_settings(tmp_path):
+    config_path = _write_minimal_config(tmp_path)
+
+    config = load_pipeline_run_config(
+        config_path,
+        experiment_name_override="wine-quality-recovery-run",
+    )
+
+    assert config.experiment_name == "wine-quality-recovery-run"
+
+
 def _write_minimal_config(tmp_path: Path) -> Path:
     config_path = tmp_path / "training_pipeline.yaml"
     config_path.write_text(

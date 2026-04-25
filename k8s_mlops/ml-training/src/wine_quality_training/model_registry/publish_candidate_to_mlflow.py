@@ -27,6 +27,10 @@ from wine_quality_training.evaluation.evaluate_wine_quality_model import (
 from wine_quality_training.model_registry.register_model_artifact import (
     RegisteredArtifact,
 )
+from wine_quality_training.shared.mlflow_experiment_manager import (
+    MlflowDeletedExperimentPolicy,
+    ensure_mlflow_experiment_ready,
+)
 from wine_quality_training.shared.structured_logger import get_pipeline_logger
 from wine_quality_training.training.wine_quality_model_trainer import TrainingResult
 
@@ -69,6 +73,7 @@ def publish_candidate_to_mlflow(
     experiment_name: str,
     registered_model_name: str,
     candidate_alias: str,
+    deleted_experiment_policy: MlflowDeletedExperimentPolicy,
     run_reason: str,
     triggered_by: str,
     run_group_id: str,
@@ -92,6 +97,9 @@ def publish_candidate_to_mlflow(
                                 `wine-quality-classifier`.
         candidate_alias:        Mutable alias that points to the newest
                                 reviewable candidate.
+        deleted_experiment_policy:
+                                What to do if the experiment exists only in
+                                MLflow's deleted state.
         run_reason:             Human-readable reason supplied by the teammate
                                 or workflow trigger.
         triggered_by:           Person or automation that requested this run.
@@ -118,20 +126,31 @@ def publish_candidate_to_mlflow(
     import mlflow.sklearn
     from mlflow.tracking import MlflowClient
 
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment(experiment_name)
+    experiment_resolution = ensure_mlflow_experiment_ready(
+        tracking_uri=tracking_uri,
+        experiment_name=experiment_name,
+        deleted_experiment_policy=deleted_experiment_policy,
+    )
 
     logger.info(
         "Publishing model candidate to MLflow",
         extra={
             "tracking_uri": tracking_uri,
+            "experiment_name": experiment_resolution.experiment_name,
+            "experiment_id": experiment_resolution.experiment_id,
+            "experiment_resolution_action": experiment_resolution.resolution_action,
             "registered_model_name": registered_model_name,
             "local_artifact_version": registered_artifact.version,
         },
     )
 
+    # Pass experiment_id explicitly so this run is always recorded under the
+    # correct named experiment regardless of MLflow's process-level active
+    # experiment state. Enterprise code never relies on global MLflow state for
+    # experiment routing — the ID is the unambiguous, immutable identifier.
     with mlflow.start_run(
-        run_name=f"{registered_artifact.model_name}-{registered_artifact.version}"
+        run_name=f"{registered_artifact.model_name}-{registered_artifact.version}",
+        experiment_id=experiment_resolution.experiment_id,
     ) as run:
         mlflow.log_params(
             {
@@ -150,6 +169,7 @@ def publish_candidate_to_mlflow(
                 "run_type": "candidate_model",
                 "run_group_id": run_group_id,
                 "review_role": "registry_candidate",
+                "experiment_resolution_action": experiment_resolution.resolution_action,
             }
         )
         mlflow.log_params(training_result.best_hyperparameters)

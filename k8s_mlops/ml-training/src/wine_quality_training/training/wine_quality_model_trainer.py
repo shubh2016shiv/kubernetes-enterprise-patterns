@@ -34,6 +34,10 @@ from sklearn.preprocessing import StandardScaler
 from wine_quality_training.feature_engineering.build_wine_features import WineTrainingDataSplit
 from wine_quality_training.training.hyperparameter_search_config import get_search_space_fn
 from wine_quality_training.pipeline.pipeline_run_config import PipelineRunConfig
+from wine_quality_training.shared.mlflow_experiment_manager import (
+    MlflowDeletedExperimentPolicy,
+    ensure_mlflow_experiment_ready,
+)
 from wine_quality_training.shared.structured_logger import get_pipeline_logger
 
 logger = get_pipeline_logger(__name__, phase="model_training")
@@ -82,6 +86,9 @@ class MlflowTrialTrackingConfig:
                          publication.
         run_reason:      Human or automation reason for the training run.
         triggered_by:    Person or system that triggered the run.
+        deleted_experiment_policy:
+                         What to do if the requested experiment exists only in
+                         the deleted state.
     Return value:
         This dataclass is passed into run_hyperparameter_search_and_train().
     Failure behavior:
@@ -98,6 +105,7 @@ class MlflowTrialTrackingConfig:
     run_group_id: str
     run_reason: str
     triggered_by: str
+    deleted_experiment_policy: MlflowDeletedExperimentPolicy
 
 
 def run_hyperparameter_search_and_train(
@@ -266,11 +274,20 @@ def _log_optuna_trial_to_mlflow(
 
     import mlflow
 
-    mlflow.set_tracking_uri(tracking.tracking_uri)
-    mlflow.set_experiment(tracking.experiment_name)
+    experiment_resolution = ensure_mlflow_experiment_ready(
+        tracking_uri=tracking.tracking_uri,
+        experiment_name=tracking.experiment_name,
+        deleted_experiment_policy=tracking.deleted_experiment_policy,
+    )
 
+    # Pass experiment_id explicitly rather than relying on MLflow's process-level
+    # active-experiment global. The global is set by ensure_mlflow_experiment_ready(),
+    # but explicit beats implicit here: in any concurrent or multi-process setup
+    # (e.g. Optuna with n_jobs > 1, distributed training jobs) global state is
+    # unreliable. experiment_id is the authoritative, unambiguous identifier.
     with mlflow.start_run(
-        run_name=f"{tracking.run_group_id}-trial-{trial.number:03d}"
+        run_name=f"{tracking.run_group_id}-trial-{trial.number:03d}",
+        experiment_id=experiment_resolution.experiment_id,
     ):
         mlflow.set_tags(
             {
@@ -280,6 +297,7 @@ def _log_optuna_trial_to_mlflow(
                 "review_role": "experiment_evidence",
                 "triggered_by": tracking.triggered_by,
                 "run_reason": tracking.run_reason,
+                "experiment_resolution_action": experiment_resolution.resolution_action,
             }
         )
         mlflow.log_params(

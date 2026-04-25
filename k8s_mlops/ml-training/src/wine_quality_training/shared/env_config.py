@@ -26,6 +26,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 TrainingRuntimeMode = Literal["local_artifact_only", "mlflow_candidate_review"]
+MlflowDeletedExperimentPolicy = Literal["restore", "fail"]
 
 
 class TrainingPipelineEnvConfig(BaseSettings):
@@ -89,6 +90,14 @@ class TrainingPipelineEnvConfig(BaseSettings):
         default="sqlite:///mlflow.db",
         description="MLflow Tracking server URI or local SQLite backend URI.",
     )
+    mlflow_experiment_name: str | None = Field(
+        default=None,
+        description=(
+            "Optional per-run override for the MLflow experiment name. "
+            "When unset, the pipeline uses experiment_name from "
+            "configs/training_pipeline.yaml."
+        ),
+    )
     mlflow_registered_model_name: str = Field(
         default="wine-quality-classifier",
         description="Stable MLflow Model Registry name used for candidate publication.",
@@ -96,6 +105,14 @@ class TrainingPipelineEnvConfig(BaseSettings):
     mlflow_candidate_alias: str = Field(
         default="candidate",
         description="Mutable MLflow alias assigned to the latest reviewable model version.",
+    )
+    mlflow_deleted_experiment_policy: MlflowDeletedExperimentPolicy = Field(
+        default="restore",
+        description=(
+            "How to handle an MLflow experiment name that exists only in the "
+            "deleted state. restore brings it back automatically. fail stops "
+            "the run with an actionable error."
+        ),
     )
     training_run_reason: str = Field(
         default="local training run",
