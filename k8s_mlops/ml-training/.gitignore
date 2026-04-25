@@ -1,11 +1,22 @@
 # Virtual environment created by uv
 .venv/
+.venv-wsl2/
 
 # Generated artifact versions (model snapshots, metrics, hyperparams)
 # Keep .gitkeep files to establish directory structure
 artifacts/**
 !artifacts/.gitkeep
 !artifacts/*/.gitkeep
+
+# Local MLflow state for the learner's laptop.
+# Enterprise: the backend store would be PostgreSQL/MySQL and the artifact
+# store would be S3/GCS/Azure Blob, not committed to Git.
+mlruns/
+mlflow-tracking/
+mlflow.db
+mlflow-ci.db
+mlflow-smoke.db
+configs/local-mlflow.env
 
 # Python compiled files
 __pycache__/

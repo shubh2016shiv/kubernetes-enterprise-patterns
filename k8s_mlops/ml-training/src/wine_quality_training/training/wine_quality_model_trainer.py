@@ -33,7 +33,7 @@ from sklearn.preprocessing import StandardScaler
 
 from wine_quality_training.feature_engineering.build_wine_features import WineTrainingDataSplit
 from wine_quality_training.training.hyperparameter_search_config import get_search_space_fn
-from wine_quality_training.training.training_pipeline_config import TrainingPipelineConfig
+from wine_quality_training.pipeline.pipeline_run_config import PipelineRunConfig
 from wine_quality_training.shared.structured_logger import get_pipeline_logger
 
 logger = get_pipeline_logger(__name__, phase="model_training")
@@ -66,9 +66,44 @@ class TrainingResult:
     n_training_samples: int
 
 
+@dataclass(frozen=True)
+class MlflowTrialTrackingConfig:
+    """
+    MLflow settings for optional hyperparameter-trial experiment tracking.
+
+    Purpose:
+        Lets the orchestrator decide whether MLflow is enabled while keeping
+        this training phase free from direct environment-variable reads.
+    Parameters:
+        tracking_uri:    MLflow Tracking server URI, such as
+                         `http://127.0.0.1:5000`.
+        experiment_name: Experiment where individual Optuna trials are logged.
+        run_group_id:    Correlation ID shared by trial runs and final registry
+                         publication.
+        run_reason:      Human or automation reason for the training run.
+        triggered_by:    Person or system that triggered the run.
+    Return value:
+        This dataclass is passed into run_hyperparameter_search_and_train().
+    Failure behavior:
+        If MLflow logging fails, the exception propagates. In enterprise, silent
+        tracking loss is dangerous because reviewers may approve a model without
+        seeing the search evidence.
+    Enterprise equivalent:
+        These fields map to metadata normally supplied by GitHub Actions, Argo
+        Workflows, Kubeflow Pipelines, or an internal ML platform portal.
+    """
+
+    tracking_uri: str
+    experiment_name: str
+    run_group_id: str
+    run_reason: str
+    triggered_by: str
+
+
 def run_hyperparameter_search_and_train(
     data_split: WineTrainingDataSplit,
-    config: TrainingPipelineConfig,
+    config: PipelineRunConfig,
+    mlflow_trial_tracking: MlflowTrialTrackingConfig | None = None,
 ) -> TrainingResult:
     """
     Run Optuna cross-validation search across all model families, then refit
@@ -76,7 +111,10 @@ def run_hyperparameter_search_and_train(
 
     Args:
         data_split: Stratified train/test split from the feature engineering phase.
-        config:     Resolved TrainingPipelineConfig.
+        config:     Resolved PipelineRunConfig.
+        mlflow_trial_tracking: Optional MLflow settings. When provided, each
+                               completed Optuna trial is logged as its own
+                               MLflow experiment run.
 
     Returns:
         TrainingResult with the fitted pipeline and best trial metadata.
@@ -119,7 +157,22 @@ def run_hyperparameter_search_and_train(
                 n_jobs=-1,
             )
 
-        return float(np.mean(cv_scores))
+        mean_score = float(np.mean(cv_scores))
+        std_score = float(np.std(cv_scores))
+
+        if mlflow_trial_tracking is not None:
+            _log_optuna_trial_to_mlflow(
+                tracking=mlflow_trial_tracking,
+                trial=trial,
+                model_family=model_family,
+                sampled_hyperparameters=hyperparams,
+                metric_name=config.optuna.metric,
+                cv_mean_score=mean_score,
+                cv_std_score=std_score,
+                cv_folds=config.cv_folds,
+            )
+
+        return mean_score
 
     study = optuna.create_study(
         direction=config.optuna.direction,
@@ -172,6 +225,88 @@ def run_hyperparameter_search_and_train(
         n_trials_completed=len(study.trials),
         n_training_samples=len(X_train),
     )
+
+
+def _log_optuna_trial_to_mlflow(
+    *,
+    tracking: MlflowTrialTrackingConfig,
+    trial: optuna.Trial,
+    model_family: str,
+    sampled_hyperparameters: dict[str, Any],
+    metric_name: str,
+    cv_mean_score: float,
+    cv_std_score: float,
+    cv_folds: int,
+) -> None:
+    """
+    Log one completed Optuna trial as an MLflow experiment run.
+
+    Purpose:
+        Makes hyperparameter search visible to reviewers. Without this, MLflow
+        only shows the final candidate and hides the evidence that led to it.
+    Parameters:
+        tracking:                 MLflow tracking metadata from the orchestrator.
+        trial:                    Optuna Trial object.
+        model_family:             Selected model family for this trial.
+        sampled_hyperparameters:  sklearn Pipeline parameters sampled by Optuna.
+        metric_name:              Cross-validation metric name.
+        cv_mean_score:            Mean cross-validation score.
+        cv_std_score:             Standard deviation across folds.
+        cv_folds:                 Number of cross-validation folds.
+    Return value:
+        None.
+    Failure behavior:
+        Lets MLflow exceptions propagate so a missing or unreachable tracking
+        server fails the run loudly when tracking is expected.
+    Enterprise equivalent:
+        In larger systems, every trial may be a separate workflow step or
+        distributed training job. This local lab logs them as MLflow runs so the
+        learner can inspect the same governance pattern on a laptop.
+    """
+
+    import mlflow
+
+    mlflow.set_tracking_uri(tracking.tracking_uri)
+    mlflow.set_experiment(tracking.experiment_name)
+
+    with mlflow.start_run(
+        run_name=f"{tracking.run_group_id}-trial-{trial.number:03d}"
+    ):
+        mlflow.set_tags(
+            {
+                "run_type": "hyperparameter_trial",
+                "run_group_id": tracking.run_group_id,
+                "model_family": model_family,
+                "review_role": "experiment_evidence",
+                "triggered_by": tracking.triggered_by,
+                "run_reason": tracking.run_reason,
+            }
+        )
+        mlflow.log_params(
+            {
+                "trial_number": trial.number,
+                "model_family": model_family,
+                "cv_folds": cv_folds,
+            }
+        )
+        mlflow.log_params(_stringify_params(sampled_hyperparameters))
+        mlflow.log_metrics(
+            {
+                f"cv_{metric_name}_mean": cv_mean_score,
+                f"cv_{metric_name}_std": cv_std_score,
+            }
+        )
+
+
+def _stringify_params(params: dict[str, Any]) -> dict[str, str]:
+    """
+    Convert hyperparameter values to MLflow-safe strings.
+
+    MLflow accepts primitive parameter values, but stringifying keeps `None`,
+    numpy scalar types, and future non-primitive values predictable.
+    """
+
+    return {key: str(value) for key, value in params.items()}
 
 
 def _build_pipeline(model_family: str, random_seed: int) -> Pipeline:

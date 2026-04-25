@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import sys
 import time
+import uuid
 from pathlib import Path
 
 from wine_quality_training.data_ingestion.load_wine_dataset import load_wine_dataset
@@ -41,10 +42,14 @@ from wine_quality_training.feature_engineering.build_wine_features import (
 from wine_quality_training.model_registry.register_model_artifact import (
     register_model_artifact,
 )
-from wine_quality_training.training.training_pipeline_config import (
-    load_training_pipeline_config,
+from wine_quality_training.model_registry.publish_candidate_to_mlflow import (
+    publish_candidate_to_mlflow,
+)
+from wine_quality_training.pipeline.pipeline_run_config import (
+    load_pipeline_run_config,
 )
 from wine_quality_training.training.wine_quality_model_trainer import (
+    MlflowTrialTrackingConfig,
     run_hyperparameter_search_and_train,
 )
 from wine_quality_training.shared.env_config import load_training_env_config
@@ -82,8 +87,31 @@ def main() -> None:
 
     configure_root_logging(level=env_config.log_level)
 
+    # ENTERPRISE EMPHASIS: Runtime mode should be visible before expensive
+    # training starts. Otherwise a teammate may wait several minutes, then only
+    # discover at the end that the run was local artifact-only and never meant
+    # to publish to MLflow.
+    if env_config.publishes_to_mlflow:
+        logger.info(
+            "Runtime mode: mlflow_candidate_review "
+            f"(tracking_uri={env_config.mlflow_tracking_uri}, "
+            f"registered_model={env_config.mlflow_registered_model_name}, "
+            f"candidate_alias={env_config.mlflow_candidate_alias})"
+        )
+    else:
+        logger.info(
+            "Runtime mode: local_artifact_only. MLflow trial logging and "
+            "candidate registration are disabled. To publish to MLflow locally, "
+            "copy configs/local-mlflow.env.example to configs/local-mlflow.env "
+            "or set TRAINING_RUNTIME_MODE=mlflow_candidate_review."
+        )
+
     try:
-        pipeline_config = load_training_pipeline_config(env_config.pipeline_config_path)
+        pipeline_config = load_pipeline_run_config(
+            env_config.pipeline_config_path,
+            optuna_n_trials_override=env_config.optuna_n_trials,
+            random_seed_override=env_config.random_seed,
+        )
     except (FileNotFoundError, KeyError) as exc:
         logger.error(f"Pipeline config load error: {exc}")
         sys.exit(1)
@@ -103,6 +131,21 @@ def main() -> None:
         if env_config.artifact_store_root != Path(".")
         else pipeline_config.artifact_store_root
     )
+    training_session_id = f"training-{uuid.uuid4().hex[:8]}"
+
+    mlflow_trial_tracking = None
+    if env_config.publishes_to_mlflow:
+        # ENTERPRISE EMPHASIS: The same run_group_id is attached to every
+        # hyperparameter trial and to the final candidate model version. This is
+        # how reviewers connect "why this model won" to "which model is being
+        # proposed for approval".
+        mlflow_trial_tracking = MlflowTrialTrackingConfig(
+            tracking_uri=env_config.mlflow_tracking_uri,
+            experiment_name=pipeline_config.experiment_name,
+            run_group_id=training_session_id,
+            run_reason=env_config.training_run_reason,
+            triggered_by=env_config.training_triggered_by,
+        )
 
     # -------------------------------------------------------------------------
     # Phase 1: Data Ingestion
@@ -144,6 +187,7 @@ def main() -> None:
     training_result = run_hyperparameter_search_and_train(
         data_split=data_split,
         config=pipeline_config,
+        mlflow_trial_tracking=mlflow_trial_tracking,
     )
     logger.info(f"Phase 4 complete ({time.monotonic() - t0:.2f}s)")
 
@@ -180,6 +224,46 @@ def main() -> None:
         experiment_name=pipeline_config.experiment_name,
     )
     logger.info(f"Phase 6 complete ({time.monotonic() - t0:.2f}s)")
+
+    # -------------------------------------------------------------------------
+    # Optional Phase 7: Publish Candidate to MLflow
+    # -------------------------------------------------------------------------
+    # ENTERPRISE EMPHASIS: Artifact registration and model approval are separate
+    # concerns. Phase 6 writes an immutable artifact bundle. Phase 7 creates the
+    # team-facing MLflow record that reviewers can inspect and later approve.
+    if env_config.publishes_to_mlflow:
+        logger.info("--- Optional Phase 7: MLflow Candidate Publishing ---")
+        t0 = time.monotonic()
+        mlflow_publication = publish_candidate_to_mlflow(
+            tracking_uri=env_config.mlflow_tracking_uri,
+            experiment_name=pipeline_config.experiment_name,
+            registered_model_name=env_config.mlflow_registered_model_name,
+            candidate_alias=env_config.mlflow_candidate_alias,
+            run_reason=env_config.training_run_reason,
+            triggered_by=env_config.training_triggered_by,
+            run_group_id=training_session_id,
+            registered_artifact=registered,
+            training_result=training_result,
+            evaluation_result=evaluation_result,
+        )
+        logger.info(
+            "Phase 7 complete",
+            extra={
+                "duration_seconds": round(time.monotonic() - t0, 2),
+                "mlflow_run_id": mlflow_publication.run_id,
+                "mlflow_model_name": mlflow_publication.model_name,
+                "mlflow_model_version": mlflow_publication.version,
+                "mlflow_alias": mlflow_publication.alias,
+            },
+        )
+    else:
+        logger.info(
+            "MLflow candidate publishing skipped",
+            extra={
+                "reason": "MLFLOW_ENABLE_REGISTRATION is not true",
+                "next_step": "Set TRAINING_RUNTIME_MODE=mlflow_candidate_review when a run should be reviewable in MLflow.",
+            },
+        )
 
     total_duration = time.monotonic() - pipeline_start
 

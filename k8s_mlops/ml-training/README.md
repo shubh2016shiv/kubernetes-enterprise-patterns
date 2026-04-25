@@ -27,6 +27,7 @@ it is containerised and executed as a Kubernetes Job.
 11. [Running the Tests](#11-running-the-tests)
 12. [Production Readiness Notes](#12-production-readiness-notes)
 13. [Troubleshooting](#13-troubleshooting)
+14. [Team Training Control Plane](#14-team-training-control-plane)
 
 ---
 
@@ -341,9 +342,17 @@ either crash or return a wrong prediction silently.
 ### Phase 4 — Model Training
 
 **Modules:**
-- `src/wine_quality_training/training/training_pipeline_config.py`
+- `src/wine_quality_training/pipeline/pipeline_run_config.py`
 - `src/wine_quality_training/training/hyperparameter_search_config.py`
 - `src/wine_quality_training/training/wine_quality_model_trainer.py`
+
+**Why these names are separated:**
+`pipeline_run_config.py` describes the run specification for the whole pipeline:
+experiment name, model families, train/test split, cross-validation folds, and
+Optuna budget. `wine_quality_model_trainer.py` executes the model-training
+phase: it builds sklearn Pipelines, runs Optuna trials, and refits the winning
+model. In enterprise codebases this split is normal: configuration/specification
+is kept separate from execution logic.
 
 **What it does:**
 Runs an Optuna hyperparameter search across three model families
@@ -710,11 +719,11 @@ development, staging, and production is hardcoded in Python.
   Environment variable     LOG_LEVEL                   env_config.py
   Environment variable     OPTUNA_N_TRIALS             env_config.py (override)
   Environment variable     RANDOM_SEED                 env_config.py (override)
-  training_pipeline.yaml   experiment_name             training_pipeline_config.py
-  training_pipeline.yaml   model_families              training_pipeline_config.py
-  training_pipeline.yaml   test_size, random_seed      training_pipeline_config.py
-  training_pipeline.yaml   cv_folds                    training_pipeline_config.py
-  training_pipeline.yaml   optuna.n_trials, metric     training_pipeline_config.py
+  training_pipeline.yaml   experiment_name             pipeline_run_config.py
+  training_pipeline.yaml   model_families              pipeline_run_config.py
+  training_pipeline.yaml   test_size, random_seed      pipeline_run_config.py
+  training_pipeline.yaml   cv_folds                    pipeline_run_config.py
+  training_pipeline.yaml   optuna.n_trials, metric     pipeline_run_config.py
 ```
 
 `env_config.py` validates required variables at startup with a fast-fail
@@ -905,7 +914,7 @@ uv run pytest tests/unit/ -v
 
 Expected output:
 ```
-collected 25 items
+collected 27 items
 
 tests/unit/test_artifact_versioning.py::test_first_version_on_empty_store     PASSED
 tests/unit/test_artifact_versioning.py::test_version_format_matches_pattern   PASSED
@@ -932,8 +941,10 @@ tests/unit/test_feature_engineering.py::test_all_classes_in_test_split        PA
 tests/unit/test_feature_engineering.py::test_y_train_X_train_lengths_match    PASSED
 tests/unit/test_feature_engineering.py::test_y_test_X_test_lengths_match      PASSED
 tests/unit/test_feature_engineering.py::test_reproducibility_same_seed        PASSED
+tests/unit/test_pipeline_run_config_overrides.py::test_optuna_trials...       PASSED
+tests/unit/test_pipeline_run_config_overrides.py::test_random_seed...         PASSED
 
-25 passed in 2.19s
+27 passed in 2.19s
 ```
 
 **Test coverage by module:**
@@ -943,6 +954,7 @@ tests/unit/test_feature_engineering.py::test_reproducibility_same_seed        PA
 | `test_data_validation.py`     | Valid dataset passes; missing column, null values, wrong class count all raise `DataValidationError` |
 | `test_feature_engineering.py` | Split sizes, stratification, schema metadata, reproducibility with same seed |
 | `test_artifact_versioning.py` | Version format, day-sequence incrementing, date rollover, latest version lookup, non-version directory filtering |
+| `test_pipeline_run_config_overrides.py` | CI and Kubernetes env overrides for teammate-requested training runs |
 
 ---
 
@@ -1040,3 +1052,47 @@ K8s cmd: kubectl get pvc -n mlops
          kubectl describe pod <pod-name> -n mlops | grep -A10 "Volumes:"
          kubectl exec <pod-name> -n mlops -- ls /mnt/artifact-store
 ```
+
+---
+
+## 14. Team Training Control Plane
+
+The next enterprise step for this module is not serving deployment yet. It is
+the training control plane: how a teammate requests a run, how that run becomes
+visible in MLflow, and how reviewers know which model version is a candidate.
+
+Start here:
+
+- [training-control-plane/README.md](training-control-plane/README.md)
+- [training-control-plane/start-mlflow-server.sh](training-control-plane/start-mlflow-server.sh)
+- [Central Pydantic runtime settings](src/wine_quality_training/shared/env_config.py)
+- [Local MLflow env example](configs/local-mlflow.env.example)
+- [GitHub Actions workflow](../../.github/workflows/ml-training-ci.yaml)
+
+Key idea:
+
+```text
+Code/config change or manual teammate request
+        |
+        v
+Central Pydantic settings resolve runtime values
+        |
+        | TRAINING_RUNTIME_MODE chooses local_artifact_only or mlflow_candidate_review
+        |
+        v
+GitHub Actions validates and runs training, or local WSL2 runs training
+        |
+        v
+Pipeline writes immutable artifact bundle
+        |
+        v
+Optional MLflow publication creates a candidate model version
+        |
+        v
+Human review later approves one version for serving
+```
+
+Enterprise note: MLflow model stages such as `Production` and `Staging` are
+deprecated in modern MLflow practice. This repository now teaches the newer
+pattern: model version tags for review state and aliases such as `candidate`
+and, later, `champion`.

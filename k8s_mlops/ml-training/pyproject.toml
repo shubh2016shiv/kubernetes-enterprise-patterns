@@ -11,6 +11,12 @@ dependencies = [
     "pandas>=2.2",
     "joblib>=1.4",
     "pyyaml>=6.0",
+    "pydantic-settings>=2.0",
+]
+
+[project.optional-dependencies]
+tracking = [
+    "mlflow>=3.0",
 ]
 
 [project.scripts]
