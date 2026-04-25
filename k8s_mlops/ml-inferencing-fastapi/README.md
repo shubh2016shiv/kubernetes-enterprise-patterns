@@ -156,6 +156,38 @@ This script:
 - **Logs the URL** if it's already running, then exits
 - **Starts MLflow** if needed, storing artifacts locally in `.mlflow-server/`
 
+### Inspect the Kubernetes inference namespace before changing anything
+
+Run this when you want to confirm which cluster `kubectl` is pointed at and
+whether the expected inference namespace/resources already exist. This is a
+read-only command. It does not create, update, or delete anything.
+
+```bash
+cd /mnt/d/Generative\ AI\ Portfolio\ Projects/kubernetes_architure/k8s_mlops/ml-inferencing-fastapi
+bash inspect-inference-resources_2.sh
+```
+
+What you should see when the stack exists:
+
+```text
+Current kubectl context: kind-local-enterprise-dev
+Expected namespace:     ml-inference
+Namespace 'ml-inference' exists.
+FOUND:   configmap/wine-quality-inference-config
+FOUND:   deployment/wine-quality-inference-api
+FOUND:   service/wine-quality-inference-service
+```
+
+What you should see when the stack has not been deployed yet:
+
+```text
+Namespace 'ml-inference' does not exist in context 'kind-local-enterprise-dev'.
+Meaning:
+  - The inference stack is probably not deployed in this cluster, or
+  - You are pointed at the wrong kubectl context, or
+  - The stack was already destroyed.
+```
+
 ### Run FastAPI before containerizing
 
 This validates the inference runtime before Docker or Kubernetes are involved.
