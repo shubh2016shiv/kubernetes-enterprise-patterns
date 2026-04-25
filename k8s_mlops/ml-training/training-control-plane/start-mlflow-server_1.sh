@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE:    start-mlflow-server.sh
+# FILE:    start-mlflow-server_1.sh
 # PURPOSE: Start a local MLflow Tracking and Model Registry server for the
 #          training control-plane lab.
-# USAGE:   ./start-mlflow-server.sh
+# USAGE:   ./start-mlflow-server_1.sh
 # WHEN:    Run before launching a candidate training job that should publish
 #          metrics, artifacts, and model registry metadata to MLflow.
 # PREREQS: WSL2 Ubuntu shell, uv installed in WSL2, and network access if
@@ -39,10 +39,27 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# CAN BE CHANGED: Path where SQLite stores MLflow run metadata (parameters, metrics, tags).
+# Example: `${PROJECT_ROOT}/mlflow-tracking/db` if you prefer a different folder name.
+# If changed, the mlflow.db file moves — existing run history will not follow unless
+# you copy the old .db file. Enterprise equivalent: replace SQLite with a PostgreSQL or
+# MySQL URI (e.g., postgresql://user:pass@host/mlflow) via MLFLOW_BACKEND_STORE_URI env var.
 BACKEND_DIR="${PROJECT_ROOT}/mlflow-tracking/backend"
+
+# CAN BE CHANGED: Path where artifact bytes (model files, metrics JSON, etc.) are stored.
+# Example: `${PROJECT_ROOT}/mlflow-tracking/artifact-store`.
+# If changed, must also update artifact_store_root in configs/training_pipeline.yaml
+# and ARTIFACT_STORE_ROOT in your .env file. Enterprise equivalent: an S3 bucket URI,
+# GCS bucket, or Azure Blob container path.
 ARTIFACT_DIR="${PROJECT_ROOT}/mlflow-tracking/artifacts"
+
 BACKEND_URI="sqlite:///${BACKEND_DIR}/mlflow.db"
 ARTIFACT_ROOT="${ARTIFACT_DIR}"
+
+# CAN BE CHANGED: Name of the WSL2-specific Python virtual environment directory.
+# Example: `.venv-linux` or `.venv-ubuntu`. Must be a directory the uv tool can write to
+# inside WSL2. Do NOT share this with the Windows .venv (see Stage 2.2 for why).
 WSL2_VENV_DIR="${PROJECT_ROOT}/.venv-wsl2"
 
 echo "[INFO] MLflow local server for the training control plane"
@@ -148,6 +165,14 @@ echo "       Listening at: http://127.0.0.1:5000"
 # Expected output:
 #   [INFO] Starting gunicorn ...
 #   Listening at: http://127.0.0.1:5000
+# CAN BE CHANGED: Host binding. `127.0.0.1` (loopback) is safe for local-only use.
+# Example: `0.0.0.0` if you need other machines on your LAN to reach the UI.
+# In enterprise, the server is placed behind an internal load balancer or Kubernetes
+# Service — the host and port below are replaced by that Service's DNS name.
+#
+# CAN BE CHANGED: Port number. Example: `5001` if port 5000 is already in use.
+# If changed, update MLFLOW_TRACKING_URI in your .env file (e.g., http://127.0.0.1:5001)
+# and the URL in README.md verification commands.
 exec uv run --extra tracking mlflow server \
   --backend-store-uri "${BACKEND_URI}" \
   --artifacts-destination "${ARTIFACT_ROOT}" \

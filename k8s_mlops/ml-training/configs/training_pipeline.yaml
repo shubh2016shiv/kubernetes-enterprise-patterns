@@ -17,6 +17,9 @@
 # Image rebuilds are expensive, slow down CI, and require a new image tag — all
 # avoidable for pure configuration changes.
 
+# CAN BE CHANGED: MLflow experiment name. Example: `wine-quality-v2` or `fraud-detection-v1`.
+# Changing this creates a NEW experiment in MLflow — existing runs stay under the old name.
+# Must match MLFLOW_EXPERIMENT_NAME in your .env file if that variable is set.
 experiment_name: wine-quality-cultivar-classification-v1
 
 # Artifact store root on the local filesystem / PVC mount path in Kubernetes.
@@ -28,11 +31,19 @@ experiment_name: wine-quality-cultivar-classification-v1
 # declared in the Kubernetes Job's volumeMounts section. A mismatch between
 # this value and the PVC mount means artifacts are written to ephemeral
 # container storage and lost when the pod terminates.
+# CAN BE CHANGED: Local path (or PVC mountPath in Kubernetes) where artifact bundles are written.
+# Example: `artifact-store` or `/mnt/artifacts` (when running in a Kubernetes Job).
+# If changed, must also update ARTIFACT_DIR in start-mlflow-server_1.sh so the MLflow
+# server artifact proxy serves from the same location. Enterprise: replace with S3/GCS/AzBlob URI.
 artifact_store_root: artifacts
 
 # Model families to include in the Optuna search.
 # Each entry must match a key in SEARCH_SPACE_REGISTRY (hyperparameter_search_config.py).
 # Remove a family to exclude it from the search without modifying Python code.
+# CAN BE CHANGED: Remove a family to exclude it from the search (e.g., remove
+# `logistic_regression` for a forest-only experiment). Each entry must match a key in
+# SEARCH_SPACE_REGISTRY in hyperparameter_search_config.py — adding a new name here
+# without registering it there will raise a KeyError at runtime.
 model_families:
   - random_forest
   - gradient_boosting
@@ -45,6 +56,9 @@ model_families:
 # hyperparameter selection. Using it as a selection signal (directly or
 # via repeated evaluation) inflates reported metrics and produces a model
 # that is not as good as the metrics suggest.
+# CAN BE CHANGED: Fraction held out for final evaluation. Example: `0.15` (15%) or `0.25` (25%).
+# Smaller values leave more data for training; larger values give a more reliable final estimate.
+# Changing this and rerunning creates a different train/test split — compare metrics with caution.
 test_size: 0.20
 
 # Seed for reproducible train/test splits and model weight initialisation.
@@ -54,10 +68,15 @@ test_size: 0.20
 # same dataset produce the same train/test split, making metric comparisons
 # between model versions valid. Changing the seed is a legitimate experiment
 # but must be documented in the run manifest.
+# CAN BE CHANGED: Integer seed for reproducibility. Example: `0`, `123`, `2024`.
+# Changing the seed intentionally (documented as a new run_reason) is a valid experiment;
+# changing it accidentally makes metric comparisons across runs unreliable.
 random_seed: 42
 
 # Number of stratified k-fold cross-validation folds used during Optuna search.
 # Higher values give more stable CV estimates but increase search wall-clock time.
+# CAN BE CHANGED: Number of cross-validation folds. Example: `3` (faster) or `10` (more stable).
+# Higher values reduce variance in metric estimates but multiply search wall-clock time.
 cv_folds: 5
 
 optuna:
@@ -68,10 +87,15 @@ optuna:
   # CPU time and therefore cost. For a production retraining CronJob, set
   # this based on your compute budget and required search coverage, and track
   # it in the run_manifest so cost can be attributed per run.
+  # CAN BE CHANGED: Total Optuna trials across all model families. Example: `20` for a quick
+  # smoke test or `200` for a thorough production search. Overridable at runtime via
+  # OPTUNA_N_TRIALS in your .env file without editing this YAML.
   n_trials: 60
 
   # Optional wall-clock timeout in seconds. null means no timeout.
   # Useful for bounded-cost training Jobs in shared clusters.
+  # CAN BE CHANGED: Wall-clock timeout in seconds. Example: `3600` (1 hour) to cap compute
+  # cost in a shared cluster. `null` means run until all n_trials complete.
   timeout_seconds: null
 
   # Optuna optimisation direction. Use "maximize" for accuracy-family metrics.
@@ -80,4 +104,7 @@ optuna:
   # Sklearn scoring string used as both the CV objective and the primary
   # reported metric. balanced_accuracy penalises class imbalance equally,
   # making it more honest than plain accuracy on multi-class problems.
+  # CAN BE CHANGED: Sklearn scoring string. Example: `f1_macro` or `roc_auc_ovr`.
+  # Must be a valid sklearn scorer name. Changing this changes what Optuna optimises and
+  # what is logged as the primary metric in MLflow.
   metric: balanced_accuracy

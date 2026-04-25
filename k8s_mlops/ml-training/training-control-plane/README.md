@@ -57,7 +57,7 @@ moved to a different model version without changing the version itself.
 
 ## Learning steps
 
-1. Read [start-mlflow-server.sh](./start-mlflow-server.sh) to see how the local
+1. Read [start-mlflow-server_1.sh](./start-mlflow-server_1.sh) to see how the local
    MLflow server is started for this lab.
 2. Read [env_config.py](../src/wine_quality_training/shared/env_config.py) to
    see the central Pydantic Settings object that owns all runtime configuration.
@@ -98,7 +98,7 @@ Start the local MLflow server from WSL2:
 
 ```bash
 cd /mnt/d/Generative\ AI\ Portfolio\ Projects/kubernetes_architure/k8s_mlops/ml-training/training-control-plane
-./start-mlflow-server.sh
+./start-mlflow-server_1.sh
 ```
 
 What you should see:
@@ -308,13 +308,13 @@ not assigned the `candidate` alias.
 If loading `models:/wine-quality-classifier/1` from Windows fails with a path
 error like `D:\mnt\d\...` or a permission denied on a Linux-style path, the
 server was started without `--serve-artifacts`. That flag is now present in
-`start-mlflow-server.sh`. Stop the running server, restart it with the updated
+`start-mlflow-server_1.sh`. Stop the running server, restart it with the updated
 script, then re-run the training pipeline to register a new model version with
 a correct `mlflow-artifacts:/` artifact URI:
 
 ```bash
 # Terminal 1 — WSL2: restart the server
-bash training-control-plane/start-mlflow-server.sh
+bash training-control-plane/start-mlflow-server_1.sh
 
 # Terminal 2 — WSL2: re-run the pipeline to create a clean artifact URI
 cd /mnt/d/Generative\ AI\ Portfolio\ Projects/kubernetes_architure/k8s_mlops/ml-training
