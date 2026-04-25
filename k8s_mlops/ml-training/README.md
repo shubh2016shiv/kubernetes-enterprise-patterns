@@ -711,25 +711,76 @@ best hyperparameters and (given the same dataset) the same model artifact.
 All runtime values are externalized. No value that changes between local
 development, staging, and production is hardcoded in Python.
 
+**Three-layer resolution order (highest priority wins):**
+
 ```
-  Source of truth          Value                       Consumer
-  ─────────────────────    ──────────────────────────  ──────────────────────
-  Environment variable     ARTIFACT_STORE_ROOT         env_config.py
-  Environment variable     PIPELINE_CONFIG_PATH        env_config.py
-  Environment variable     LOG_LEVEL                   env_config.py
-  Environment variable     OPTUNA_N_TRIALS             env_config.py (override)
-  Environment variable     RANDOM_SEED                 env_config.py (override)
-  training_pipeline.yaml   experiment_name             pipeline_run_config.py
-  training_pipeline.yaml   model_families              pipeline_run_config.py
-  training_pipeline.yaml   test_size, random_seed      pipeline_run_config.py
-  training_pipeline.yaml   cv_folds                    pipeline_run_config.py
-  training_pipeline.yaml   optuna.n_trials, metric     pipeline_run_config.py
+  Layer 1 — Process environment variable (highest priority)
+    Set by: Kubernetes Job spec, GitHub Actions, or shell export
+    Example: export OPTUNA_N_TRIALS=3
+
+  Layer 2 — .env file at ml-training/ root
+    File:    .env  (gitignored — copy from .env.example, never commit)
+    Loaded automatically by Pydantic Settings when running from ml-training/
+    Enterprise equivalent: Kubernetes ConfigMap + Secret injection
+
+  Layer 3 — configs/training_pipeline.yaml
+    Tracked in Git, shared by the whole team.
+    Controls structural pipeline decisions: model families, split ratio, CV budget.
+    Enterprise equivalent: Kubernetes ConfigMap (mounted as a file)
+
+  Layer 4 — Pydantic defaults in env_config.py (lowest priority)
+    Safe fallback for unit tests. Not appropriate for real training runs.
 ```
 
+**Full variable reference:**
+
+```
+  Variable / YAML key            Layer   Default                     What it controls
+  ─────────────────────────────  ──────  ──────────────────────────  ───────────────────────────────────────────
+  ARTIFACT_STORE_ROOT            1 or 2  artifacts                   Where versioned model files are written
+  PIPELINE_CONFIG_PATH           1 or 2  configs/training_pipeline.yaml  Which YAML to load
+  LOG_LEVEL                      1 or 2  INFO                        Logging verbosity (DEBUG/INFO/WARNING/ERROR)
+  OPTUNA_N_TRIALS                1 or 2  60 (from YAML)              Override trial count per-run without YAML edit
+  RANDOM_SEED                    1 or 2  42 (from YAML)              Override seed per-run
+  TRAINING_RUNTIME_MODE          1 or 2  local_artifact_only         Controls whether MLflow is contacted (see below)
+  MLFLOW_TRACKING_URI            1 or 2  sqlite:///mlflow.db         MLflow server address
+  MLFLOW_REGISTERED_MODEL_NAME   1 or 2  wine-quality-classifier     Registry name in MLflow
+  MLFLOW_CANDIDATE_ALIAS         1 or 2  candidate                   MLflow alias for the latest reviewable version
+  TRAINING_TRIGGERED_BY          1 or 2  local-user                  Audit field: who/what triggered this run
+  TRAINING_RUN_REASON            1 or 2  local training run          Audit field: why this run was requested
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  experiment_name                3       wine-quality-...            MLflow experiment grouping all runs
+  model_families                 3       [rf, gb, lr]                Which classifiers Optuna searches
+  test_size                      3       0.20                        Held-out test fraction (never change lightly)
+  random_seed                    3       42                          Split and sampler seed (never change lightly)
+  cv_folds                       3       5                           Number of CV folds in Optuna objective
+  optuna.n_trials                3       60                          Default trial budget (overridable per-run)
+  optuna.metric                  3       balanced_accuracy           Optuna objective and primary reported metric
+```
+
+**TRAINING_RUNTIME_MODE — the most important variable:**
+
+```
+  local_artifact_only (default)
+    ├── MLflow is never contacted
+    ├── MLFLOW_* variables are ignored
+    ├── Writes only to the local artifact store
+    └── Use for: smoke tests, debugging, CI validation
+
+  mlflow_candidate_review
+    ├── Logs every Optuna trial to MLflow Tracking
+    ├── Registers the passing model as a versioned candidate
+    ├── Sets the `candidate` alias on the new version
+    ├── REQUIRES the MLflow server to be running before training starts
+    └── Use for: all team training runs that need review
+```
+
+> Full parameter descriptions, interaction map, and common mistakes:
+> see **[configs/README.md](configs/README.md)**
+
 `env_config.py` validates required variables at startup with a fast-fail
-pattern. If `ARTIFACT_STORE_ROOT` or `PIPELINE_CONFIG_PATH` are absent, the
-Job exits with code `1` immediately and Kubernetes marks it as failed — before
-any expensive computation starts.
+pattern. If `PIPELINE_CONFIG_PATH` points to a missing file, the
+Job exits with code `1` immediately — before any expensive computation starts.
 
 In Kubernetes, the environment variables come from:
 
@@ -739,11 +790,15 @@ env:
     value: /mnt/artifact-store
   - name: PIPELINE_CONFIG_PATH
     value: /etc/mlops/config/training_pipeline.yaml
+  - name: TRAINING_RUNTIME_MODE
+    value: mlflow_candidate_review
   - name: LOG_LEVEL
     valueFrom:
       configMapKeyRef:
         name: wine-training-env-config
         key: log_level
+  - name: MLFLOW_TRACKING_URI
+    value: http://mlflow.mlops.svc.cluster.local:5000
 ```
 
 ---
@@ -813,15 +868,25 @@ isolated from any other Python environment on the machine.
 - `uv` installed (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - Python 3.11 or newer (uv downloads and manages this automatically)
 
-**Install all dependencies:**
+**Install dependencies:**
 
 ```bash
 cd k8s_mlops/ml-training
+
+# Base install — covers local_artifact_only mode and all unit tests
 uv sync
+
+# With MLflow tracking — required for mlflow_candidate_review mode
+uv sync --extra tracking
 ```
 
 `uv sync` reads `pyproject.toml`, resolves the full dependency graph, creates
 `.venv/`, and installs all packages including dev dependencies (pytest).
+`--extra tracking` additionally installs `mlflow` and its dependencies.
+
+If you run in `mlflow_candidate_review` mode without the tracking extra
+installed, the pipeline will fail at Phase 4 with `ImportError: No module
+named 'mlflow'`. Install the extra once and it persists in `.venv/`.
 
 Expected output:
 ```
@@ -848,59 +913,152 @@ Installed 28 packages in ...
 
 ## 10. Running the Pipeline
 
-The pipeline reads two required environment variables. Set them before running.
+The pipeline has two execution modes. Identify which mode you are in before
+running anything — the startup sequence is different for each.
 
-**Local run (from `ml-training/` directory):**
+```
+Mode A: local_artifact_only              Mode B: mlflow_candidate_review
+────────────────────────────────────     ────────────────────────────────────────
+No MLflow server needed                  MLflow server MUST be running first
+Default — active with no .env file       Active when .env sets TRAINING_RUNTIME_MODE
+Writes artifacts to local disk only      Writes artifacts + tracks in MLflow
+Good for: smoke tests, debugging         Good for: team experiments, candidate review
+```
+
+### Step 0: Check which mode you are in
 
 ```bash
-# Set required environment variables
-export ARTIFACT_STORE_ROOT=artifacts
-export PIPELINE_CONFIG_PATH=configs/training_pipeline.yaml
-
-# Run the pipeline
-uv run python -m wine_quality_training.pipeline.run_training_pipeline
+cd k8s_mlops/ml-training
+grep TRAINING_RUNTIME_MODE .env 2>/dev/null || echo "No .env — running in local_artifact_only mode"
 ```
 
-**Optional overrides:**
+---
+
+### Mode A — local_artifact_only (no MLflow, no prerequisites)
+
+Use this when you have no `.env` file, or when `.env` contains
+`TRAINING_RUNTIME_MODE=local_artifact_only`.
 
 ```bash
-# Change Optuna trial count (overrides YAML value)
-export OPTUNA_N_TRIALS=30
-
-# Change log verbosity
-export LOG_LEVEL=DEBUG
-
-# Use a different random seed (affects train/test split and model init)
-export RANDOM_SEED=123
+cd k8s_mlops/ml-training
+uv run run-training-pipeline
 ```
 
-**Expected terminal output:**
+To override a specific value for one run without editing any file:
 
-```
-2026-04-25T01:44:07 | INFO | pipeline_orchestrator | ... | Wine Quality Training Pipeline — START
-2026-04-25T01:44:07 | INFO | pipeline_orchestrator | ... | Configuration loaded
-2026-04-25T01:44:07 | INFO | pipeline_orchestrator | ... | --- Phase 1: Data Ingestion ---
-2026-04-25T01:44:07 | INFO | data_ingestion        | ... | Loading UCI Wine dataset from sklearn.datasets
-2026-04-25T01:44:07 | INFO | data_ingestion        | ... | Dataset loaded successfully
-2026-04-25T01:44:07 | INFO | pipeline_orchestrator | ... | Phase 1 complete (0.02s)
-2026-04-25T01:44:07 | INFO | pipeline_orchestrator | ... | --- Phase 2: Data Validation ---
-  ...
-2026-04-25T01:45:07 | INFO | pipeline_orchestrator | ... | --- Phase 4: Model Training ---
-  ... (60 Optuna trials, ~60 seconds)
-2026-04-25T01:45:08 | INFO | model_evaluation      | ... | Evaluation PASSED (threshold=0.85)
-2026-04-25T01:45:09 | INFO | pipeline_orchestrator | ... | Wine Quality Training Pipeline — COMPLETE
+```bash
+OPTUNA_N_TRIALS=5 uv run run-training-pipeline     # quick 5-trial smoke test
+LOG_LEVEL=DEBUG   uv run run-training-pipeline     # verbose output
 ```
 
-**Every run creates a new version directory:**
+**Expected output (Mode A):**
 
 ```
-# First run
+Wine Quality Training Pipeline — START
+Runtime mode: local_artifact_only. MLflow trial logging and candidate
+registration are disabled. To publish to MLflow locally, copy
+.env.example to .env or set TRAINING_RUNTIME_MODE=mlflow_candidate_review.
+--- Phase 1: Data Ingestion ---      (< 0.1s)
+--- Phase 2: Data Validation ---     (< 0.1s)
+--- Phase 3: Feature Engineering --- (< 0.1s)
+--- Phase 4: Model Training ---      (~30-90s depending on n_trials)
+--- Phase 5: Model Evaluation ---    (< 0.1s)
+--- Phase 6: Artifact Registration ---
+Artifact registration complete  version=v_2026-04-25_001  evaluation_passed=True
+Wine Quality Training Pipeline — COMPLETE
+```
+
+---
+
+### Mode B — mlflow_candidate_review (MLflow server must start first)
+
+> **Critical order: start the MLflow server BEFORE triggering training.**
+>
+> If you run training first, Phases 1–3 will succeed normally (~2 seconds).
+> Phase 4 will then fail with a connection error to the MLflow server the
+> first time it tries to log an Optuna trial. No artifact is written.
+> The fix is always the same: start the server, then rerun training.
+
+**Terminal 1 — start the MLflow server and leave it running:**
+
+```bash
+cd k8s_mlops/ml-training
+bash training-control-plane/start-mlflow-server.sh
+```
+
+Wait until this line appears before moving to Terminal 2:
+
+```
+Listening at: http://127.0.0.1:5000
+```
+
+Verify the server is responding before submitting training:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/health
+# Expected: 200
+```
+
+**Terminal 2 — run training (only after the server is ready):**
+
+```bash
+cd k8s_mlops/ml-training
+
+# One-time setup: copy the template and fill in your name
+cp .env.example .env
+# Edit .env: set TRAINING_TRIGGERED_BY=<your-name> and TRAINING_RUN_REASON
+
+# Run with the MLflow tracking extra installed
+uv run --extra tracking run-training-pipeline
+```
+
+**Expected output (Mode B, MLflow running):**
+
+```
+Wine Quality Training Pipeline — START
+Runtime mode: mlflow_candidate_review (tracking_uri=http://127.0.0.1:5000 ...)
+--- Phase 1: Data Ingestion ---
+--- Phase 2: Data Validation ---
+--- Phase 3: Feature Engineering ---
+--- Phase 4: Model Training ---
+  [I 2026-04-25 01:44:09] Trial 0 finished with value: 0.972 ...
+  [I 2026-04-25 01:44:11] Trial 1 finished with value: 0.986 ...
+  ... (n_trials total, each logged to MLflow)
+--- Phase 5: Model Evaluation ---
+--- Phase 6: Artifact Registration ---
+--- Optional Phase 7: MLflow Candidate Publishing ---
+MLflow candidate publication complete
+  mlflow_run_id=abc123  mlflow_model_version=3  mlflow_alias=candidate
+Wine Quality Training Pipeline — COMPLETE
+```
+
+Open `http://127.0.0.1:5000` in your browser to see the experiment runs,
+trial metrics, and the registered model version tagged `candidate`.
+
+**What you see if MLflow is not running when training starts (Mode B):**
+
+```
+--- Phase 1, 2, 3: succeed normally ---
+--- Phase 4: Model Training ---
+  MlflowException: Could not connect to http://127.0.0.1:5000
+  (Connection refused)
+Pipeline exits with code 4.
+No artifact was written.
+Fix: start the MLflow server (Terminal 1), then rerun training (Terminal 2).
+```
+
+---
+
+### Every run creates a new version directory (both modes)
+
+```
+# First run of the day
 artifacts/wine_quality_classifier/v_2026-04-25_001/
 
-# Second run (same day, same or different config)
+# Second run same day (any config, any mode)
 artifacts/wine_quality_classifier/v_2026-04-25_002/
 
-# Re-running never overwrites a previous version.
+# Runs never overwrite each other. Retrying after a failure creates a new version.
 ```
 
 ---
@@ -976,19 +1134,71 @@ tests/unit/test_pipeline_run_config_overrides.py::test_random_seed...         PA
 
 **What would change in a real enterprise environment:**
 
-| This project                   | Production equivalent                                              |
-|--------------------------------|--------------------------------------------------------------------|
-| `sklearn.datasets.load_wine`   | Feature store (Feast, Tecton) or Delta Lake partition read         |
-| `artifacts/` on local disk     | S3 bucket, GCS bucket, or Azure Blob container                     |
-| Single orchestrator Job        | Argo Workflows DAG with one container per phase                    |
-| In-memory Optuna storage       | Optuna with PostgreSQL or Redis storage for distributed search      |
-| No model registry              | MLflow Model Registry, SageMaker Model Registry, or Vertex AI      |
-| Manual version comparison      | Automated promotion gate in CI/CD (GitHub Actions, Argo)           |
-| Local `kind` cluster           | EKS, GKE, or AKS with GPU node pools for compute-heavy training    |
+| This project                          | Production equivalent                                                  |
+|---------------------------------------|------------------------------------------------------------------------|
+| `sklearn.datasets.load_wine`          | Feature store (Feast, Tecton) or Delta Lake partition read             |
+| `artifacts/` on local disk            | S3 bucket, GCS bucket, or Azure Blob container                         |
+| Single orchestrator Job               | Argo Workflows DAG with one container per phase                        |
+| In-memory Optuna storage              | Optuna with PostgreSQL or Redis storage for distributed search          |
+| Local MLflow server (SQLite backend)  | Shared MLflow server with PostgreSQL backend and S3 artifact store      |
+| `candidate` alias — manual promotion  | Automated promotion gate: CI/CD moves alias after approval workflow     |
+| Local `kind` cluster                  | EKS, GKE, or AKS with GPU node pools for compute-heavy training        |
 
 ---
 
 ## 13. Troubleshooting
+
+**`MlflowException: Could not connect to http://127.0.0.1:5000 (Connection refused)`**
+
+```
+Cause:   Training was started in mlflow_candidate_review mode before the
+         MLflow server was running. Phase 4 is the first phase that contacts
+         MLflow (to log Optuna trials), so Phases 1–3 will have already
+         succeeded when this error appears.
+Fix:     1. Start the MLflow server in a separate terminal first:
+              bash training-control-plane/start-mlflow-server.sh
+         2. Wait until you see: Listening at: http://127.0.0.1:5000
+         3. Rerun training. A new artifact version will be created — the
+            partial run from the failed attempt produced no artifact.
+Verify:  curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/health
+         (should print 200 before you submit training)
+```
+
+**`ImportError: No module named 'mlflow'`**
+
+```
+Cause:   Running in mlflow_candidate_review mode but the MLflow package
+         was not installed. uv sync only installs base dependencies.
+Fix:     uv sync --extra tracking
+         or use: uv run --extra tracking run-training-pipeline
+         The --extra tracking flag installs mlflow and its dependencies.
+```
+
+**Pipeline trains correctly but MLflow UI shows no new experiments or runs**
+
+```
+Cause:   TRAINING_RUNTIME_MODE was not set to mlflow_candidate_review.
+         The pipeline ran in local_artifact_only mode (the default) and
+         never contacted the MLflow server, even if it was running.
+Fix:     Open .env and confirm:
+           TRAINING_RUNTIME_MODE=mlflow_candidate_review
+         Check the pipeline startup log — it prints the active mode:
+           Runtime mode: local_artifact_only. MLflow ... disabled.
+           (vs)
+           Runtime mode: mlflow_candidate_review (tracking_uri=...)
+```
+
+**MLflow shows runs but no registered model or `candidate` alias**
+
+```
+Cause:   The best model's balanced_accuracy on the test split was below
+         the promotion threshold (0.85). The pipeline logs Optuna trials
+         to MLflow but does not register a candidate when evaluation fails.
+         The model version tag review_status will be "failed_automatic_metric_gate".
+Fix:     Check the artifact's metrics.json for the actual balanced_accuracy.
+         Options: increase n_trials, add model families, or review data quality.
+         The local artifact was still written — only MLflow registration was skipped.
+```
 
 **`RuntimeError: Missing required environment variables: ['ARTIFACT_STORE_ROOT']`**
 
@@ -1068,7 +1278,11 @@ Start here:
 - [Central Pydantic runtime settings](src/wine_quality_training/shared/env_config.py)
 - [Local runtime env template](.env.example)
 - [Configuration reference guide](configs/README.md)
-- [GitHub Actions workflow](../../.github/workflows/ml-training-ci.yaml)
+
+> **Note:** CI/CD workflow files (`.github/workflows/ml-training-ci.yml` and
+> `ml-training-train.yml`) are planned but not yet implemented. When present,
+> they will trigger the unit test suite and a smoke-test training run on every
+> config or code change, simulating how enterprise teams gate training on CI.
 
 Key idea:
 
