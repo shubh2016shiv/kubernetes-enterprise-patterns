@@ -42,6 +42,8 @@ kind: Cluster
 #   - `kind get clusters` output
 #   - The kubectl context name: "kind-local-enterprise-dev"
 #   - Docker container names: "local-enterprise-dev-control-plane"
+# CAN BE CHANGED: Example `ml-inference-dev`. If changed, must also update
+# CLUSTER_NAME in create-cluster_1.sh, verify-cluster_2.sh, and destroy-cluster_3.sh.
 name: local-enterprise-dev
 
 # ─── NETWORKING ───────────────────────────────────────────────────────────────
@@ -66,12 +68,17 @@ networking:
   #   - Your corporate VPN ranges (important enterprise gotcha!)
   # Default is 10.244.0.0/16 (Flannel convention) — we use 10.100.0.0/16
   # to make it clearly distinguishable in our learning environment.
+  # CAN BE CHANGED: Example `10.244.0.0/16`. If using Docker Desktop on WSL2,
+  # ensure this does NOT overlap with your WSL2 network (check: `ip addr` in WSL2).
+  # Change in consultation with your network team in enterprise.
   podSubnet: "10.100.0.0/16"
 
   # serviceSubnet: The IP range for Service (ClusterIP) virtual IPs.
   # Services are NOT actual machines — they're virtual IPs managed by kube-proxy.
   # Traffic to a Service IP is intercepted by iptables rules on each node.
   # ENTERPRISE NOTE: This CIDR must never appear in your actual corporate network.
+  # CAN BE CHANGED: Example `10.96.0.0/12` (Kubernetes default). Must NOT overlap
+  # with podSubnet or your host network. Change only if required by your network policy.
   serviceSubnet: "10.200.0.0/16"
 
 # ─── NODES ────────────────────────────────────────────────────────────────────
@@ -120,6 +127,10 @@ nodes:
     # ENTERPRISE EQUIVALENT: Security Group / firewall rules that allow
     # specific ports through to your load balancer.
     extraPortMappings:
+      # CAN BE CHANGED: hostPort values below (8080, 8443, 30000, 30001).
+      # If another process on your host uses these ports, change them here.
+      # If changed, update any port-forward commands or test scripts that reference them.
+      # containerPort (80, 443, 30000, 30001) should NOT change — these are K8s defaults.
       - containerPort: 80        # HTTP → Ingress Controller
         hostPort: 8080           # Access via http://localhost:8080 on your machine
         protocol: TCP

@@ -32,9 +32,9 @@ Why this matters:
 Open and use the files in this order:
 
 1. `kind-cluster-config.yaml`
-2. `create-cluster.sh`
-3. `verify-cluster.sh`
-4. `destroy-cluster.sh`
+2. `create-cluster_1.sh`
+3. `verify-cluster_2.sh`
+4. `destroy-cluster_3.sh`
 
 Why this order matters:
 - the YAML is the cluster blueprint
@@ -141,7 +141,7 @@ Run:
 
 ```bash
 cd "/path/to/kubernetes_architure"
-bash setup/01-cluster-setup/create-cluster.sh
+bash setup/01-cluster-setup/create-cluster_1.sh
 ```
 
 ## Stage 4.1 - What `create-cluster.sh` Actually Does
@@ -196,7 +196,7 @@ What success looks like:
 After creation, run:
 
 ```bash
-bash setup/01-cluster-setup/verify-cluster.sh
+bash setup/01-cluster-setup/verify-cluster_2.sh
 ```
 
 ### What `verify-cluster.sh` Checks
@@ -298,7 +298,7 @@ Why this matters:
 When you want a clean reset, run:
 
 ```bash
-bash setup/01-cluster-setup/destroy-cluster.sh
+bash setup/01-cluster-setup/destroy-cluster_3.sh
 ```
 
 What this does:
@@ -327,7 +327,7 @@ less setup/01-cluster-setup/kind-cluster-config.yaml
 bash setup/01-cluster-setup/create-cluster.sh
 
 # 4. Verify the cluster
-bash setup/01-cluster-setup/verify-cluster.sh
+bash setup/01-cluster-setup/verify-cluster_2.sh
 
 # 5. Explore it manually
 kubectl get nodes -o wide
@@ -343,7 +343,7 @@ Use this restart recipe:
 cd "/path/to/kubernetes_architure"
 bash setup/00-prerequisites/check-prerequisites.sh
 bash setup/01-cluster-setup/create-cluster.sh
-bash setup/01-cluster-setup/verify-cluster.sh
+bash setup/01-cluster-setup/verify-cluster_2.sh
 ```
 
 ## Most Important Things To Remember

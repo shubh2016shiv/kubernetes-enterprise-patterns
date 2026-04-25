@@ -43,9 +43,11 @@ naming when apply order matters.
 
 ### Script Location Rule
 
-Every module that has commands must have a `commands.sh` file.
-Do not put module-specific commands only in the README — also put them in a
-runnable script with stage markers so the learner can execute them directly.
+Every module that has commands must have a descriptive, intuitive script with
+clear verb-noun naming (e.g., `observe-lifecycle.sh`, `apply-services.sh`).
+This makes the script's intent immediately obvious without requiring the learner
+to guess. Do not put module-specific commands only in the README — also put them
+in a runnable script with stage markers so the learner can execute them directly.
 
 ### The Fundamentals-Only Rule
 
@@ -67,3 +69,32 @@ managed Kubernetes platforms that learners will encounter in enterprise intervie
 - **Azure AKS** — dominant in enterprises with Microsoft ecosystems
 
 Every enterprise translation table must include at least one of these.
+
+### Changeability Comments for Fundamentals Modules
+
+The root `AGENTS.md` requires `# CAN BE CHANGED:` comments for values learners
+can safely customize. Inside `setup/`, apply this especially to cluster and
+fundamentals values that learners commonly tune while practicing:
+
+- kind cluster name, kubectl context name, node count, node roles, and kind node
+  image version.
+- Namespace names, labels, annotations, and Pod Security Admission levels.
+- Pod names, container image tags, commands, args, ports, and restart policies.
+- Deployment replica counts, rollout settings, selectors, and pod template
+  labels.
+- Service type, service port, target port, NodePort, and port-forward local port.
+- ConfigMap keys/values, Secret placeholder keys/values, and environment
+  variable names.
+- Resource requests/limits, LimitRange defaults, ResourceQuota totals, and
+  health probe timings.
+- Bash script variables such as cluster names, namespace names, file paths,
+  wait timeouts, retry counts, and expected output values.
+
+When a value must match another field or file, the `CAN BE CHANGED` comment must
+name that dependency directly. Example: if a Deployment selector changes, say it
+must match the pod template labels and any Service selector that routes to those
+pods.
+
+If the learner asks only for changeability visibility, add comments only. Do not
+change the manifest or script behavior unless the learner explicitly asks for
+the value to be changed.

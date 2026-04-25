@@ -169,20 +169,21 @@ echo -e "${CYAN}${BOLD}╔══════════════════
 echo -e "${CYAN}${BOLD}║  PHASE 4: Deployments — Self-Healing + Rolling Updates   ║${RESET}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
 echo ""
-echo -e "  Before running: Open 04-deployments/nginx-deployment.yaml"
-echo -e "  Read the spec.strategy section (rolling update config)"
-echo -e "  Read the topologySpreadConstraints (HA pod distribution)"
+echo -e "  Before running: Open 04-deployments/risk-profile-api-deployment.yaml"
+echo -e "  Then open 04-deployments/inference-gateway-deployment.yaml"
+echo -e "  Notice: each Deployment owns its own pods, but Services are still needed for stable communication"
 echo ""
 bash "${SETUP_DIR}/04-deployments/rolling-update.sh"
+bash "${SETUP_DIR}/04-deployments/observe-lifecycle.sh"
 
 pause_and_reflect "EXPLORE:
   kubectl get deployments -n applications          → Deployment status
   kubectl get replicasets -n applications          → See revision history as RSets
-  kubectl rollout history deployment/nginx-deployment -n applications
-  kubectl get pods -n applications -l app=nginx -o wide  → Which node each pod is on
+  kubectl rollout history deployment/inference-gateway-deployment -n applications
+  kubectl get pods -n applications -l tier=backend -o wide  → See both sibling Deployments
   
   SELF-HEALING DEMO:
-    kubectl delete pod <any-nginx-pod> -n applications
+    kubectl delete pod <any-inference-gateway-pod> -n applications
     kubectl get pods -n applications -w    (watch ReplicaSet recreate it instantly)"
 
 # =============================================================================
@@ -192,18 +193,22 @@ echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
 echo -e "${CYAN}${BOLD}║  PHASE 5: Services — Stable Endpoints + DNS              ║${RESET}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
-bash "${SETUP_DIR}/05-services/service-commands.sh"
+bash "${SETUP_DIR}/05-services/commands.sh"
 
 pause_and_reflect "EXPLORE:
   kubectl get services -n applications             → See ClusterIP and NodePort
   kubectl get endpoints -n applications            → See pod IPs behind each service
   
   BROWSER TEST: Open http://localhost:30000
-    → nginx welcome page served from inside your K8s cluster!
+    → gateway response served from inside your K8s cluster
+
+  DEPENDENCY TEST: Open http://localhost:30000/dependencies
+    → gateway calls the sibling backend Service and returns the dependency status
   
   DNS TEST (from inside cluster):
-    kubectl exec -it platform-debug-toolbox -n applications -- nslookup nginx-clusterip
-    → CoreDNS resolves to the Service's ClusterIP"
+    kubectl exec -it platform-debug-toolbox -n applications -- nslookup inference-gateway-clusterip
+    kubectl exec -it platform-debug-toolbox -n applications -- nslookup risk-profile-api-clusterip
+    → CoreDNS resolves both Services by name"
 
 # =============================================================================
 # PHASE 6: CONFIGMAPS & SECRETS
@@ -364,8 +369,8 @@ echo -e "  ${YELLOW}kubectl get pods -n applications -o wide${RESET}"
 echo -e "  ${YELLOW}kubectl describe pod <name> -n applications${RESET}"
 echo -e "  ${YELLOW}kubectl logs <pod> -n applications --follow${RESET}"
 echo -e "  ${YELLOW}kubectl exec -it <pod> -n applications -- /bin/sh${RESET}"
-echo -e "  ${YELLOW}kubectl rollout status deployment/nginx-deployment -n applications${RESET}"
-echo -e "  ${YELLOW}kubectl rollout undo deployment/nginx-deployment -n applications${RESET}"
+echo -e "  ${YELLOW}kubectl rollout status deployment/inference-gateway-deployment -n applications${RESET}"
+echo -e "  ${YELLOW}kubectl rollout undo deployment/inference-gateway-deployment -n applications${RESET}"
 echo -e "  ${YELLOW}kubectl auth can-i list pods --as=<user> -n applications${RESET}"
 echo ""
 echo -e "${BOLD}When done for the day:${RESET}"

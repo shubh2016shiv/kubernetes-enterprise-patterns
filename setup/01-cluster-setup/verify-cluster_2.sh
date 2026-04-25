@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE: 01-cluster-setup/verify-cluster.sh
-# PURPOSE: Post-creation health check. Run this after create-cluster.sh
+# FILE: 01-cluster-setup/verify-cluster_2.sh
+# PURPOSE: Post-creation health check. Run this after create-cluster_1.sh
 #          to confirm every system component is operational.
 #
 # ENTERPRISE CONTEXT:
@@ -26,6 +26,9 @@ set -e
 set -u
 set -o pipefail
 
+# CAN BE CHANGED: Must match CLUSTER_NAME in create-cluster_1.sh and the
+# name field in kind-cluster-config.yaml. Example: `ml-inference-dev`.
+# If changed, also update destroy-cluster_3.sh and kind-cluster-config.yaml.
 CLUSTER_NAME="local-enterprise-dev"
 
 GREEN='\033[0;32m'

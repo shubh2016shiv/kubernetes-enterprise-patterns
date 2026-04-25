@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE: 02-namespaces/apply-namespaces.sh
+# FILE: 02-namespaces/apply-namespaces_1.sh
 # PURPOSE: Apply namespace definitions and explore the resulting structure.
 #          Teaches namespace inspection commands used daily in enterprise.
 # =============================================================================
@@ -35,6 +35,8 @@ RESET='\033[0m'
 # └──────────────────────────────────────────────────────────────────────────┘
 
 MANIFESTS_DIR="$(dirname "$0")"
+# CAN BE CHANGED: If you rename namespaces.yaml or move it, update this path.
+# Example: MANIFESTS_DIR="/path/to/custom-namespace-dir"
 
 echo ""
 echo -e "${CYAN}${BOLD}════════════════════════════════════════════════════════${RESET}"
@@ -78,6 +80,8 @@ kubectl get namespaces
 echo ""
 echo -e "${BOLD}[3] Detailed view of 'applications' namespace:${RESET}"
 echo ""
+# CAN BE CHANGED: If you rename the 'applications' namespace in namespaces.yaml,
+# update this reference to match. Example: kubectl describe namespace ml-workloads
 kubectl describe namespace applications
 
 # ─── STEP 4: SHOW LABELS (for selector understanding) ─────────────────────────

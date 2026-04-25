@@ -37,6 +37,9 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  # CAN BE CHANGED: Example `ml-inference-workloads` or `api-services`.
+  # If renamed, update kubectl describe commands in apply-namespaces_1.sh and any
+  # other scripts that reference this namespace.
   name: applications
   # Labels on namespaces are used by:
   #   - NetworkPolicy selectors (allow traffic between labeled namespaces)
@@ -45,8 +48,10 @@ metadata:
   labels:
     # environment label: CRITICAL in enterprise for policy enforcement.
     # OPA Gatekeeper rules can say: "enforce resource limits in env=production"
+    # CAN BE CHANGED: Example `production` or `staging`. Affects policy enforcement.
     environment: development
     # team: tracks which team owns this namespace (for billing, alerting)
+    # CAN BE CHANGED: Example `data-platform` or `mlops-team`. Used for cost attribution.
     team: platform-engineering
     # managed-by: documents what tool manages this resource
     # In real enterprise: this would be "argocd", "flux", or "terraform"
@@ -79,6 +84,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  # CAN BE CHANGED: Example `observability` or `logging`. Name describes the purpose.
   name: monitoring
   labels:
     environment: development
@@ -106,6 +112,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  # CAN BE CHANGED: Example `vault-system` or `policy-engine`. Used for organization.
   name: security
   labels:
     environment: development
@@ -134,6 +141,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  # CAN BE CHANGED: Example `nginx-ingress` or `traefik-system`. Name reflects controller type.
   name: ingress-system
   labels:
     environment: development
@@ -155,6 +163,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  # CAN BE CHANGED: Example `pre-production` or `canary`. Name reflects environment.
   name: staging
   labels:
     environment: staging

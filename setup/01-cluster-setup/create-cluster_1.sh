@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE: 01-cluster-setup/create-cluster.sh
+# FILE: 01-cluster-setup/create-cluster_1.sh
 # PURPOSE: Bootstrap a production-topology local Kubernetes cluster using kind.
 #
 # WHAT THIS SCRIPT DOES:
@@ -17,7 +17,7 @@
 #   This is the foundation of Infrastructure-as-Code (IaC) thinking.
 #
 # HOW TO RUN:
-#   bash 01-cluster-setup/create-cluster.sh
+#   bash 01-cluster-setup/create-cluster_1.sh
 # =============================================================================
 
 set -e
@@ -71,6 +71,9 @@ set -o pipefail
 
 # Cluster name MUST match the "name:" field in kind-cluster-config.yaml.
 # If they differ, kind will create a SECOND cluster with a different name.
+# CAN BE CHANGED: Example `ml-inference-dev`. If changed, update the name field
+# in kind-cluster-config.yaml, all references in verify-cluster_2.sh and
+# destroy-cluster_3.sh, and README.md learning step references.
 CLUSTER_NAME="local-enterprise-dev"
 
 # Path to the cluster configuration YAML.
@@ -80,6 +83,8 @@ CLUSTER_CONFIG="$(dirname "$0")/kind-cluster-config.yaml"
 
 # How long to wait for nodes to reach "Ready" state after creation.
 # 120 seconds is generous — typically takes 30-60 seconds.
+# CAN BE CHANGED: Increase to 180 if running on slower hardware or higher latency.
+# Does not affect learning outcome.
 NODE_READY_TIMEOUT=120
 
 # ─── COLORS ───────────────────────────────────────────────────────────────────

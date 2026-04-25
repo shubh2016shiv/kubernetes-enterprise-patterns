@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# FILE: 01-cluster-setup/destroy-cluster.sh
+# FILE: 01-cluster-setup/destroy-cluster_3.sh
 # PURPOSE: Cleanly tear down the local Kubernetes cluster.
 #
 # WHEN TO USE THIS:
@@ -29,6 +29,8 @@ set -e
 set -u
 set -o pipefail
 
+# CAN BE CHANGED: Must match CLUSTER_NAME in create-cluster_1.sh and verify-cluster_2.sh,
+# and the name field in kind-cluster-config.yaml. Example: `ml-inference-dev`.
 CLUSTER_NAME="local-enterprise-dev"
 
 RED='\033[0;31m'
@@ -85,5 +87,5 @@ echo -e "  Remaining kubectl contexts:"
 kubectl config get-contexts 2>/dev/null || echo "  (none — kubeconfig is empty)"
 
 echo ""
-echo -e "  ${GREEN}To recreate: bash 01-cluster-setup/create-cluster.sh${RESET}"
+echo -e "  ${GREEN}To recreate: bash 01-cluster-setup/create-cluster_1.sh${RESET}"
 echo ""
