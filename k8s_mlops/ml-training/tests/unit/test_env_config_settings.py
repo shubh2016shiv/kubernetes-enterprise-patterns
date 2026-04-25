@@ -15,7 +15,7 @@ from wine_quality_training.shared.env_config import load_training_env_config
 
 def test_settings_load_from_explicit_env_file(tmp_path, monkeypatch):
     config_file = _write_pipeline_config(tmp_path)
-    env_file = tmp_path / "local-mlflow.env"
+    env_file = tmp_path / ".env"
     env_file.write_text(
         f"""
 PIPELINE_CONFIG_PATH={config_file.as_posix()}
@@ -40,7 +40,7 @@ TRAINING_RUN_REASON=manual candidate run from test
 
 def test_environment_variable_overrides_env_file(tmp_path, monkeypatch):
     config_file = _write_pipeline_config(tmp_path)
-    env_file = tmp_path / "local-mlflow.env"
+    env_file = tmp_path / ".env"
     env_file.write_text(
         f"""
 PIPELINE_CONFIG_PATH={config_file.as_posix()}

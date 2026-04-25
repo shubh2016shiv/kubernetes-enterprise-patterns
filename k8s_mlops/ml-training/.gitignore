@@ -16,7 +16,11 @@ mlflow-tracking/
 mlflow.db
 mlflow-ci.db
 mlflow-smoke.db
-configs/local-mlflow.env
+
+# Runtime environment file — contains personal audit metadata and local paths.
+# The template (.env.example) is tracked; the populated .env is never committed.
+# Enterprise equivalent: these values are injected by Kubernetes ConfigMap/Secret.
+/.env
 
 # Python compiled files
 __pycache__/

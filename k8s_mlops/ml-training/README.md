@@ -70,39 +70,39 @@ Kubernetes objects that correspond to each concern in production.
 
 ```
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  Kubernetes Training Job (mlops namespace)                           │
+  │  Kubernetes Training Job (mlops namespace)                          │
   │                                                                     │
   │  ┌─────────────────────┐    ┌──────────────────────────────────┐    │
-  │  │ ConfigMap            │    │ PersistentVolumeClaim            │    │
-  │  │ training_pipeline    │    │ artifact-store-pvc               │    │
-  │  │ .yaml mounted at     │    │ mounted at /mnt/artifact-store   │    │
-  │  │ /etc/mlops/config/   │    │ (local: artifacts/)              │    │
+  │  │ ConfigMap           │    │ PersistentVolumeClaim            │    │
+  │  │ training_pipeline   │    │ artifact-store-pvc               │    │
+  │  │ .yaml mounted at    │    │ mounted at /mnt/artifact-store   │    │
+  │  │ /etc/mlops/config/  │    │ (local: artifacts/)              │    │
   │  └──────────┬──────────┘    └────────────────┬─────────────────┘    │
-  │             │ PIPELINE_CONFIG_PATH env var    │ ARTIFACT_STORE_ROOT  │
+  │             │ PIPELINE_CONFIG_PATH env var   │ ARTIFACT_STORE_ROOT  │
   │             │                                │ env var              │
   │             ▼                                ▼                      │
   │  ┌──────────────────────────────────────────────────────────────┐   │
-  │  │  run_training_pipeline.py  (pipeline orchestrator)            │   │
+  │  │  run_training_pipeline.py  (pipeline orchestrator)           │   │
   │  │                                                              │   │
-  │  │  Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 ──►│   │
+  │  │  Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 ──► │   │
   │  │  Ingestion   Validation  Feature     Training    Evaluation  │   │
   │  │                          Engineering                         │   │
   │  │                                                  Phase 6 ───►│   │
-  │  │                                                  Artifact     │   │
-  │  │                                                  Registration │   │
+  │  │                                                  Artifact    │   │
+  │  │                                                  Registration│   │
   │  └──────────────────────────────────────────────────────────────┘   │
   │                                                                     │
   └──────────────────────────────────┬──────────────────────────────────┘
                                      │
                                      ▼
               ┌──────────────────────────────────────────┐
-              │  artifacts/wine_quality_classifier/       │
-              │  v_YYYY-MM-DD_NNN/                        │
-              │    model.joblib                           │
-              │    metrics.json                           │
-              │    training_config.json                   │
-              │    feature_schema.json                    │
-              │    run_manifest.json                      │
+              │  artifacts/wine_quality_classifier/      │
+              │  v_YYYY-MM-DD_NNN/                       │
+              │    model.joblib                          │
+              │    metrics.json                          │
+              │    training_config.json                  │
+              │    feature_schema.json                   │
+              │    run_manifest.json                     │
               └──────────────────────────────────────────┘
 ```
 
@@ -365,16 +365,16 @@ refit on the full training split.
 
 ```
   ┌─────────────────────────────────────────────────────────────────┐
-  │  Optuna Study  (60 trials, TPE sampler, direction=maximize)      │
-  │                                                                  │
-  │  Each trial:                                                     │
+  │  Optuna Study  (60 trials, TPE sampler, direction=maximize)     │
+  │                                                                 │
+  │  Each trial:                                                    │
   │    1. suggest model_family ─► one of [RF, GB, LR]               │
-  │    2. suggest hyperparams  ─► family-specific search space       │
-  │    3. build sklearn Pipeline(StandardScaler + classifier)        │
-  │    4. StratifiedKFold(n=5) cross_val_score on X_train            │
-  │    5. return mean balanced_accuracy across 5 folds               │
-  │                                                                  │
-  │  Objective: maximize mean balanced_accuracy (5-fold CV)          │
+  │    2. suggest hyperparams  ─► family-specific search space      │
+  │    3. build sklearn Pipeline(StandardScaler + classifier)       │
+  │    4. StratifiedKFold(n=5) cross_val_score on X_train           │
+  │    5. return mean balanced_accuracy across 5 folds              │
+  │                                                                 │
+  │  Objective: maximize mean balanced_accuracy (5-fold CV)         │
   └──────────────────────────────┬──────────────────────────────────┘
                                  │
                     best trial identified
@@ -1066,7 +1066,8 @@ Start here:
 - [training-control-plane/README.md](training-control-plane/README.md)
 - [training-control-plane/start-mlflow-server.sh](training-control-plane/start-mlflow-server.sh)
 - [Central Pydantic runtime settings](src/wine_quality_training/shared/env_config.py)
-- [Local MLflow env example](configs/local-mlflow.env.example)
+- [Local runtime env template](.env.example)
+- [Configuration reference guide](configs/README.md)
 - [GitHub Actions workflow](../../.github/workflows/ml-training-ci.yaml)
 
 Key idea:

@@ -1,14 +1,14 @@
 """
 Module: env_config
 Purpose: Central typed runtime settings for the ML training pipeline.
-Inputs:  Environment variables, optional dotenv-style env files, and defaults
-         suitable for local WSL2 development.
+Inputs:  Environment variables, optional .env file at the module root, and
+         defaults suitable for local WSL2 development.
 Outputs: A validated TrainingPipelineEnvConfig object consumed by the pipeline
          orchestrator.
-Tradeoffs: Local learners may use configs/local-mlflow.env for convenience.
-           Enterprise Kubernetes uses ConfigMaps and Secrets to inject the same
-           keys as environment variables without baking environment-specific
-           values into the container image.
+Tradeoffs: Local developers copy .env.example to .env at the module root and
+           fill in personal values. Enterprise Kubernetes injects the same keys
+           as environment variables from ConfigMaps and Secrets without baking
+           environment-specific values into the container image.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class TrainingPipelineEnvConfig(BaseSettings):
         paths, MLflow settings, and team-trigger metadata.
     Parameters:
         Values are loaded from process environment variables first, then from
-        optional env files such as configs/local-mlflow.env, then from defaults.
+        the .env file at the module root, then from defaults.
     Return value:
         A validated Pydantic Settings object.
     Failure behavior:
@@ -51,7 +51,7 @@ class TrainingPipelineEnvConfig(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=(".env", "configs/local-mlflow.env"),
+        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -144,8 +144,9 @@ def load_training_env_config(env_file: Path | None = None) -> TrainingPipelineEn
       ARTIFACT_STORE_ROOT   -> artifacts/
       PIPELINE_CONFIG_PATH  -> configs/training_pipeline.yaml
 
-    For local MLflow candidate runs, copy:
-      configs/local-mlflow.env.example -> configs/local-mlflow.env
+    For local MLflow candidate runs, copy the template to the module root:
+      cp .env.example .env
+    Then edit .env with your name and local MLflow server address.
 
     In Kubernetes, these are overridden by the Job spec env injection from
     ConfigMap/Secret values, which take precedence over defaults.

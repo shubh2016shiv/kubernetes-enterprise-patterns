@@ -61,16 +61,16 @@ moved to a different model version without changing the version itself.
    MLflow server is started for this lab.
 2. Read [env_config.py](../src/wine_quality_training/shared/env_config.py) to
    see the central Pydantic Settings object that owns all runtime configuration.
-3. Read [local-mlflow.env.example](../configs/local-mlflow.env.example) to see
-   the local candidate-training config file.
+3. Read [.env.example](../.env.example) to see the local candidate-training
+   config template.
 4. Read [publish_candidate_to_mlflow.py](../src/wine_quality_training/model_registry/publish_candidate_to_mlflow.py)
    to see how one completed training run becomes a reviewable MLflow model
    version.
 5. Read [ml-training-ci.yaml](../../../.github/workflows/ml-training-ci.yaml) to
    see how code/config changes and manual teammate requests trigger the training
    workflow.
-6. Run the local MLflow server, then run the training pipeline using
-   `configs/local-mlflow.env`.
+6. Run the local MLflow server, then run the training pipeline using your
+   local `.env` file.
 7. Open the MLflow UI and inspect the `candidate` model alias.
 
 ## Commands section
@@ -114,11 +114,11 @@ In a second WSL2 terminal, run a candidate training job:
 cd /mnt/d/Generative\ AI\ Portfolio\ Projects/kubernetes_architure/k8s_mlops/ml-training
 
 # One-time local setup:
-# Copy the example into the real local env file. The real file is gitignored
-# because each teammate may use a different user name, trial count, or MLflow URL.
-cp configs/local-mlflow.env.example configs/local-mlflow.env
+# Copy the template to .env at the module root. The .env file is gitignored
+# because each teammate has a different name, trial count, and MLflow URL.
+cp .env.example .env
 
-# Edit configs/local-mlflow.env if you want to change TRAINING_TRIGGERED_BY,
+# Edit .env if you want to change TRAINING_TRIGGERED_BY,
 # TRAINING_RUN_REASON, OPTUNA_N_TRIALS, or the MLflow URL.
 uv run --extra tracking run-training-pipeline
 ```
@@ -162,15 +162,15 @@ If you run only:
 uv run python -m wine_quality_training.pipeline.run_training_pipeline
 ```
 
-from a clean checkout with no `configs/local-mlflow.env`, the pipeline trains
+from a clean checkout with no `.env` at the module root, the pipeline trains
 and writes local artifacts, but MLflow stays empty. That is expected because
 `TRAINING_RUNTIME_MODE` defaults to `local_artifact_only`.
 
 If you want MLflow to capture the hyperparameter trials and final candidate,
-use the central env file:
+copy the template and rerun:
 
 ```bash
-cp configs/local-mlflow.env.example configs/local-mlflow.env
+cp .env.example .env
 uv run --extra tracking run-training-pipeline
 ```
 
@@ -180,11 +180,11 @@ Configuration source order:
 1. Real environment variables
    Example: GitHub Actions inputs or Kubernetes ConfigMap/Secret env injection.
 
-2. Local env files
-   Example: configs/local-mlflow.env on the learner laptop.
+2. .env file at the module root (ml-training/.env)
+   Example: the file you copied from .env.example on your local machine.
 
 3. Pydantic defaults
-   Example: local artifact-only training when no MLflow config is present.
+   Example: local artifact-only training when no .env is present.
 ```
 
 Enterprise note: the env file is a local teaching convenience. In production,
@@ -202,8 +202,8 @@ Runtime modes:
 
 | What we do locally | What enterprise does | Why it differs |
 |---|---|---|
-| Use `TRAINING_RUNTIME_MODE` in `configs/local-mlflow.env` | Inject the same mode from Kubernetes ConfigMaps, GitHub Actions inputs, or an internal platform form | The platform, not an ad hoc CLI flag, declares whether a run is local-only or reviewable |
-| Use `configs/local-mlflow.env` for local runtime values | Inject the same keys from Kubernetes ConfigMaps, Secrets, GitHub Actions inputs, or an internal platform form | Developers need easy local runs; shared environments need auditable managed config |
+| Use `TRAINING_RUNTIME_MODE` in `.env` at the module root | Inject the same mode from Kubernetes ConfigMaps, GitHub Actions inputs, or an internal platform form | The platform, not an ad hoc CLI flag, declares whether a run is local-only or reviewable |
+| Use `.env` for local runtime values | Inject the same keys from Kubernetes ConfigMaps, Secrets, GitHub Actions inputs, or an internal platform form | Developers need easy local runs; shared environments need auditable managed config |
 | Start MLflow with SQLite and local artifact folders | Run MLflow behind an internal URL with PostgreSQL or MySQL plus S3, Google Cloud Storage, or Azure Blob Storage | Teams need durable storage, access control, backups, and shared access |
 | Run training from GitHub Actions for the lab | Trigger a Kubernetes Job, Argo Workflows DAG, or Kubeflow Pipeline from GitHub Actions | Real training may need more CPU, memory, GPUs, retries, and cluster scheduling |
 | Use `workflow_dispatch` for manual teammate runs | Use a self-service portal, GitHub Actions manual run, or Argo Workflows submit form | The important pattern is controlled self-service with audit logs |
@@ -248,10 +248,10 @@ cd /mnt/d/Generative\ AI\ Portfolio\ Projects/kubernetes_architure/k8s_mlops/ml-
 uv sync --extra tracking --group dev
 ```
 
-If MLflow still stays empty, check the central runtime config:
+If MLflow still stays empty, check your local runtime config:
 
 ```bash
-cat configs/local-mlflow.env
+cat .env
 ```
 
 Confirm it contains:

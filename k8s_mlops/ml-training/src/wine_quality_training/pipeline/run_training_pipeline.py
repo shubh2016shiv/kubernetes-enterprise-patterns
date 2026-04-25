@@ -102,7 +102,7 @@ def main() -> None:
         logger.info(
             "Runtime mode: local_artifact_only. MLflow trial logging and "
             "candidate registration are disabled. To publish to MLflow locally, "
-            "copy configs/local-mlflow.env.example to configs/local-mlflow.env "
+            "copy .env.example to .env at the ml-training/ root "
             "or set TRAINING_RUNTIME_MODE=mlflow_candidate_review."
         )
 
@@ -165,7 +165,14 @@ def main() -> None:
     except DataValidationError as exc:
         logger.error(f"Data validation FAILED: {exc}")
         sys.exit(2)
-    logger.info(f"Phase 2 complete ({time.monotonic() - t0:.2f}s)")
+    logger.info(
+        f"Phase 2 complete ({time.monotonic() - t0:.2f}s)",
+        extra={
+            "n_samples": validation_report.n_samples,
+            "n_features": validation_report.n_features,
+            "class_distribution": validation_report.class_distribution,
+        },
+    )
 
     # -------------------------------------------------------------------------
     # Phase 3: Feature Engineering
