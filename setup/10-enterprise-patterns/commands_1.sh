@@ -36,6 +36,9 @@ set -euo pipefail
 #   - Leave the learner with production-style checks.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `applications` is the namespace where reliability controls are demonstrated.
+# NetworkPolicy, PodDisruptionBudget, and autoscaling settings are usually scoped to
+# one application boundary so teams can reason about blast radius.
 NAMESPACE="applications"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -80,6 +83,10 @@ run_cmd kubectl apply -f "${SCRIPT_DIR}/../04-deployments/inference-gateway-depl
 run_cmd kubectl apply -f "${SCRIPT_DIR}/../05-services/risk-profile-api-clusterip.yaml"
 run_cmd kubectl apply -f "${SCRIPT_DIR}/../05-services/clusterip-service.yaml"
 
+# CONFIGURATION EXPLANATION The 90s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/risk-profile-api-deployment -n "${NAMESPACE}" --timeout=90s
 run_cmd kubectl rollout status deployment/inference-gateway-deployment -n "${NAMESPACE}" --timeout=90s
 
@@ -94,6 +101,10 @@ run_cmd kubectl apply -f "${SCRIPT_DIR}/network-policy.yaml"
 run_cmd kubectl apply -f "${SCRIPT_DIR}/pod-disruption-budget.yaml"
 run_cmd kubectl apply -f "${SCRIPT_DIR}/horizontal-pod-autoscaler.yaml"
 run_cmd kubectl apply -f "${SCRIPT_DIR}/scheduling-constraints-demo.yaml"
+# CONFIGURATION EXPLANATION The 90s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/scheduling-constraints-demo -n "${NAMESPACE}" --timeout=90s
 
 # ---------------------------------------------------------------------------

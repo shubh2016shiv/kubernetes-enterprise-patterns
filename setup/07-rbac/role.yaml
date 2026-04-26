@@ -13,7 +13,14 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 
 metadata:
+  # CONFIGURATION EXPLANATION `gateway-observer` is the Kubernetes API name for this Role. Humans and automation
+  # use this name in kubectl commands, audit logs, and incident runbooks, so changing
+  # it must be deliberate and coordinated with scripts that reference it.
   name: gateway-observer
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
@@ -26,21 +33,39 @@ rules:
   - apiGroups: [""]
     # pods/log is a subresource. It is separate from pods because reading logs
     # can expose application data, stack traces, and sometimes accidental secrets.
+    # CONFIGURATION EXPLANATION `resources` lists the object types this permission applies to, such as pods,
+    # services, or secrets. Least privilege means naming only the resources the
+    # workload actually needs, not granting access to everything.
     resources: ["pods", "pods/log"]
     # get reads one named object. list reads many objects. watch streams changes.
     # This is enough for dashboards and troubleshooting, but not for mutation.
+    # CONFIGURATION EXPLANATION `verbs` are the allowed actions, such as get, list, watch, create, or delete.
+    # Production reviews verbs carefully because read-only access is much safer than
+    # permissions that modify or remove workloads.
     verbs: ["get", "list", "watch"]
 
   - apiGroups: [""]
     # Services and endpoints are safe for this observer because they reveal
     # routing state, not credentials.
+    # CONFIGURATION EXPLANATION `resources` lists the object types this permission applies to, such as pods,
+    # services, or secrets. Least privilege means naming only the resources the
+    # workload actually needs, not granting access to everything.
     resources: ["services", "endpoints"]
+    # CONFIGURATION EXPLANATION `verbs` are the allowed actions, such as get, list, watch, create, or delete.
+    # Production reviews verbs carefully because read-only access is much safer than
+    # permissions that modify or remove workloads.
     verbs: ["get", "list", "watch"]
 
   - apiGroups: [""]
     # ConfigMaps from setup/06-configmaps-secrets contain non-sensitive runtime
     # settings, so this observer can inspect them.
+    # CONFIGURATION EXPLANATION `resources` lists the object types this permission applies to, such as pods,
+    # services, or secrets. Least privilege means naming only the resources the
+    # workload actually needs, not granting access to everything.
     resources: ["configmaps"]
+    # CONFIGURATION EXPLANATION `verbs` are the allowed actions, such as get, list, watch, create, or delete.
+    # Production reviews verbs carefully because read-only access is much safer than
+    # permissions that modify or remove workloads.
     verbs: ["get", "list"]
 
 # =============================================================================

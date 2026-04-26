@@ -74,17 +74,27 @@ set -o pipefail
 # CAN BE CHANGED: Example `ml-inference-dev`. If changed, update the name field
 # in kind-cluster-config.yaml, all references in verify-cluster_2.sh and
 # destroy-cluster_3.sh, and README.md learning step references.
+# CONFIGURATION EXPLANATION `local-enterprise-dev` is the kind cluster name. kind also creates the kubectl
+# context `kind-local-enterprise-dev`, so this value must match
+# kind-cluster-config.yaml or this script may created a different local cluster than
+# the learner expects.
 CLUSTER_NAME="local-enterprise-dev"
 
 # Path to the cluster configuration YAML.
 # We use "$(dirname "$0")" to get the directory containing THIS script,
 # making the path relative regardless of where you run it from.
+# CONFIGURATION EXPLANATION This path points at the kind cluster blueprint. The script derives it from its own
+# folder so the learner can run the command from different working directories without
+# accidentally using another cluster configuration.
 CLUSTER_CONFIG="$(dirname "$0")/kind-cluster-config.yaml"
 
 # How long to wait for nodes to reach "Ready" state after creation.
 # 120 seconds is generous — typically takes 30-60 seconds.
 # CAN BE CHANGED: Increase to 180 if running on slower hardware or higher latency.
 # Does not affect learning outcome.
+# CONFIGURATION EXPLANATION `120` seconds is the maximum time this script waits for Kubernetes nodes or rollouts
+# to become healthy. A timeout turns a stuck reconciliation loop into a clear failure,
+# which is the same discipline production automation uses to avoid hanging CI jobs.
 NODE_READY_TIMEOUT=120
 
 # ─── COLORS ───────────────────────────────────────────────────────────────────
@@ -230,8 +240,14 @@ echo ""
 
 # Wait for all nodes to be Ready with a timeout loop
 log_info "Waiting for all nodes to be Ready..."
+# CONFIGURATION EXPLANATION `120` seconds is the maximum time this script waits for Kubernetes nodes or rollouts
+# to become healthy. A timeout turns a stuck reconciliation loop into a clear failure,
+# which is the same discipline production automation uses to avoid hanging CI jobs.
 READY_TIMEOUT=120
 ELAPSED=0
+# CONFIGURATION EXPLANATION `5` seconds is how often the script asks the Kubernetes API for updated status.
+# Polling too fast creates unnecessary API traffic; polling too slowly makes
+# troubleshooting feel frozen.
 INTERVAL=5
 
 while true; do

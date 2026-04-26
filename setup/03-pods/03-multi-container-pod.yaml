@@ -1,24 +1,49 @@
 # =============================================================================
 # FILE: 03-pods/03-multi-container-pod.yaml
-# PURPOSE: Enterprise sidecar pattern:
-#          app container writes logs to shared volume, sidecar ships/streams logs.
+# PURPOSE: Enterprise helper-container pattern, commonly called a sidecar.
+#          A sidecar is a helper container that runs inside the same Pod as the
+#          main application container. It is "beside" the app, not a separate
+#          service. Here, the app writes logs to a shared volume and the sidecar
+#          reads that same volume to ship/stream logs.
 # =============================================================================
 
 apiVersion: v1
 kind: Pod
 metadata:
+  # CONFIGURATION EXPLANATION `inference-with-log-sidecar` is the Kubernetes API name for this Pod. Humans and
+  # automation use this name in kubectl commands, audit logs, and incident runbooks,
+  # so changing it must be deliberate and coordinated with scripts that reference it.
   name: inference-with-log-sidecar
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-with-log-sidecar
     app.kubernetes.io/component: inference
     app.kubernetes.io/part-of: ml-platform
+    # CONFIGURATION EXPLANATION `app: inference-demo` is a label used as a matching contract. Deployment
+    # selectors, pod template labels, and Service selectors must agree on this value,
+    # or Kubernetes will create objects that cannot find the pods they are supposed to
+    # manage or route to.
     app: inference-demo
+    # CONFIGURATION EXPLANATION `pattern: sidecar` labels this as a multi-container Pod where one container is
+    # the main app and another container helps it. In production, sidecars often handle logging, metrics,
+    # security certificates, or service-mesh networking without changing the app code.
     pattern: sidecar
 spec:
   initContainers:
     - name: init-config
+      # CONFIGURATION EXPLANATION `busybox:1.36` is the container image that will run in the pod. The tag is
+      # part of the release decision: production teams avoid unpinned `latest` images
+      # so rollbacks, audits, and vulnerability scans know exactly which artifact was
+      # deployed.
       image: busybox:1.36
+      # CONFIGURATION EXPLANATION `IfNotPresent` tells kubelet when to pull the image from a registry. In this
+      # lab it avoids unnecessary downloads; in production the pull policy is chosen
+      # together with immutable image tags so deployments are both repeatable and
+      # fresh when intended.
       imagePullPolicy: IfNotPresent
       command:
         - sh
@@ -28,11 +53,23 @@ spec:
           echo "startup_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /config/runtime.env
       volumeMounts:
         - name: shared-config
+          # CONFIGURATION EXPLANATION `mountPath: /config` controls persistent storage behavior. Storage
+          # settings decide where data appears in the container, how much durable
+          # capacity is requested, and which storage backend provides it in
+          # production.
           mountPath: /config
 
   containers:
     - name: inference-app
+      # CONFIGURATION EXPLANATION `python:3.11.11-slim` is the container image that will run in the pod. The tag
+      # is part of the release decision: production teams avoid unpinned `latest`
+      # images so rollbacks, audits, and vulnerability scans know exactly which
+      # artifact was deployed.
       image: python:3.11.11-slim
+      # CONFIGURATION EXPLANATION `IfNotPresent` tells kubelet when to pull the image from a registry. In this
+      # lab it avoids unnecessary downloads; in production the pull policy is chosen
+      # together with immutable image tags so deployments are both repeatable and
+      # fresh when intended.
       imagePullPolicy: IfNotPresent
       command:
         - /bin/sh
@@ -69,23 +106,67 @@ spec:
           PY
       ports:
         - name: http
+          # CONFIGURATION EXPLANATION `8080` is the port the process inside the container listens on. A Service
+          # targetPort or probe must point here; if the numbers do not line up, the
+          # pod can be running while traffic still fails.
           containerPort: 8080
+      # CONFIGURATION EXPLANATION `resources` sets the CPU and memory budget for this container. Kubernetes uses
+      # requests to choose a node with enough capacity and limits to prevent one container from consuming too
+      # much of the shared worker node.
       resources:
+        # CONFIGURATION EXPLANATION Resource requests are the minimum CPU and memory the scheduler reserves for
+        # this container. They affect which node the pod can land on and form the
+        # baseline used by autoscaling, capacity planning, and cost forecasting.
         requests:
+          # CONFIGURATION EXPLANATION `150m` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+          # reserve scheduling capacity, while limits cap usage, so the same-looking
+          # field can mean either baseline capacity or a hard ceiling depending on its
+          # parent section.
           cpu: "150m"
+          # CONFIGURATION EXPLANATION `192Mi` is a memory amount. Memory is not compressible like CPU: if a
+          # container exceeds its memory limit, Kubernetes may kill it, so production
+          # teams set this from observed usage plus headroom.
           memory: "192Mi"
+        # CONFIGURATION EXPLANATION Resource limits are the maximum CPU and memory this container is allowed to
+        # use. They protect the node and neighboring pods from one workload consuming
+        # everything, which is a core multi-tenant production safety rule.
         limits:
+          # CONFIGURATION EXPLANATION `500m` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+          # reserve scheduling capacity, while limits cap usage, so the same-looking
+          # field can mean either baseline capacity or a hard ceiling depending on its
+          # parent section.
           cpu: "500m"
+          # CONFIGURATION EXPLANATION `512Mi` is a memory amount. Memory is not compressible like CPU: if a
+          # container exceeds its memory limit, Kubernetes may kill it, so production
+          # teams set this from observed usage plus headroom.
           memory: "512Mi"
       volumeMounts:
         - name: log-volume
+          # CONFIGURATION EXPLANATION `mountPath: /var/log/inference` controls persistent storage behavior.
+          # Storage settings decide where data appears in the container, how much
+          # durable capacity is requested, and which storage backend provides it in
+          # production.
           mountPath: /var/log/inference
         - name: shared-config
+          # CONFIGURATION EXPLANATION `mountPath: /config` controls persistent storage behavior. Storage
+          # settings decide where data appears in the container, how much durable
+          # capacity is requested, and which storage backend provides it in
+          # production.
           mountPath: /config
           readOnly: true
 
+    # CONFIGURATION EXPLANATION `log-shipper` is the sidecar container: it is not the main application. It lives
+    # in the same Pod so it can read the app's log files from the shared volume and print them as container logs.
     - name: log-shipper
+      # CONFIGURATION EXPLANATION `busybox:1.36` is the container image that will run in the pod. The tag is
+      # part of the release decision: production teams avoid unpinned `latest` images
+      # so rollbacks, audits, and vulnerability scans know exactly which artifact was
+      # deployed.
       image: busybox:1.36
+      # CONFIGURATION EXPLANATION `IfNotPresent` tells kubelet when to pull the image from a registry. In this
+      # lab it avoids unnecessary downloads; in production the pull policy is chosen
+      # together with immutable image tags so deployments are both repeatable and
+      # fresh when intended.
       imagePullPolicy: IfNotPresent
       command:
         - sh
@@ -99,15 +180,42 @@ spec:
           tail -F /var/log/inference/access.log | while read line; do
             echo "[inference-log] ${line}"
           done
+      # CONFIGURATION EXPLANATION `resources` is intentionally much smaller for the sidecar helper than for the
+      # app container. The helper only tails a log file, so giving it a large CPU or memory budget would waste
+      # cluster capacity in production.
       resources:
+        # CONFIGURATION EXPLANATION Resource requests are the minimum CPU and memory the scheduler reserves for
+        # this container. They affect which node the pod can land on and form the
+        # baseline used by autoscaling, capacity planning, and cost forecasting.
         requests:
+          # CONFIGURATION EXPLANATION `20m` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+          # reserve scheduling capacity, while limits cap usage, so the same-looking
+          # field can mean either baseline capacity or a hard ceiling depending on its
+          # parent section.
           cpu: "20m"
+          # CONFIGURATION EXPLANATION `32Mi` is a memory amount. Memory is not compressible like CPU: if a
+          # container exceeds its memory limit, Kubernetes may kill it, so production
+          # teams set this from observed usage plus headroom.
           memory: "32Mi"
+        # CONFIGURATION EXPLANATION Resource limits are the maximum CPU and memory this container is allowed to
+        # use. They protect the node and neighboring pods from one workload consuming
+        # everything, which is a core multi-tenant production safety rule.
         limits:
+          # CONFIGURATION EXPLANATION `100m` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+          # reserve scheduling capacity, while limits cap usage, so the same-looking
+          # field can mean either baseline capacity or a hard ceiling depending on its
+          # parent section.
           cpu: "100m"
+          # CONFIGURATION EXPLANATION `96Mi` is a memory amount. Memory is not compressible like CPU: if a
+          # container exceeds its memory limit, Kubernetes may kill it, so production
+          # teams set this from observed usage plus headroom.
           memory: "96Mi"
       volumeMounts:
         - name: log-volume
+          # CONFIGURATION EXPLANATION `mountPath: /var/log/inference` controls persistent storage behavior.
+          # Storage settings decide where data appears in the container, how much
+          # durable capacity is requested, and which storage backend provides it in
+          # production.
           mountPath: /var/log/inference
           readOnly: true
 

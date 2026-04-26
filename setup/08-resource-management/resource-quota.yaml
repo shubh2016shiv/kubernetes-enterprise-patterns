@@ -13,7 +13,14 @@ apiVersion: v1
 kind: ResourceQuota
 
 metadata:
+  # CONFIGURATION EXPLANATION `applications-quota` is the Kubernetes API name for this ResourceQuota. Humans and
+  # automation use this name in kubectl commands, audit logs, and incident runbooks,
+  # so changing it must be deliberate and coordinated with scripts that reference it.
   name: applications-quota
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: applications

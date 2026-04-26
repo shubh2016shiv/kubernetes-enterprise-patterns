@@ -36,6 +36,9 @@ set -euo pipefail
 # │      └── Review the production-style checks for broken Service traffic     │
 # └────────────────────────────────────────────────────────────────────────────┘
 
+# CONFIGURATION EXPLANATION `applications` is where the Deployments and Services live together. Services only
+# select pods in their own namespace unless you build more advanced cross-namespace
+# patterns, so this value keeps networking tests pointed at the right workloads.
 NAMESPACE="applications"
 MANIFESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 

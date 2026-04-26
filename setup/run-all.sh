@@ -22,6 +22,8 @@ set -u
 set -o pipefail
 
 SETUP_DIR="$(cd "$(dirname "$0")" && pwd)"
+# CONFIGURATION EXPLANATION `applications` is the namespace targeted by these kubectl commands. A namespace is a
+# named area inside a cluster used for ownership, permissions, quotas, and cleanup.
 NAMESPACE="applications"
 
 # ─── COLORS ───────────────────────────────────────────────────────────────────
@@ -59,7 +61,7 @@ cat << 'EOF'
 ║       0 → Prerequisites Check                                        ║
 ║       1 → Cluster Creation (3-node enterprise topology)              ║
 ║       2 → Namespace Setup (isolation, RBAC boundaries)               ║
-║       3 → Pods (atomic units, sidecars, init containers)             ║
+║       3 → Pods (atomic units, helper containers, init containers)    ║
 ║       4 → Deployments (self-healing, rolling updates, rollback)      ║
 ║       5 → Services (ClusterIP, NodePort, DNS, Endpoints)             ║
 ║       6 → ConfigMaps & Secrets (externalized config)                 ║
@@ -159,7 +161,7 @@ pause_and_reflect "EXPLORE:
   kubectl exec inference-worker-config-demo -n applications -- env | grep POD_
     → See Downward API vars from the env-demo pod
   kubectl logs inference-with-log-sidecar -n applications -c log-shipper
-    → See sidecar container logs"
+    → See logs from the sidecar: a helper container that runs beside the main app in the same Pod"
 
 # =============================================================================
 # PHASE 4: DEPLOYMENTS
@@ -222,6 +224,10 @@ kubectl apply -f "${SETUP_DIR}/06-configmaps-secrets/app-secret.yaml"
 kubectl apply -f "${SETUP_DIR}/06-configmaps-secrets/pod-using-config.yaml"
 
 # Wait for the pod to be ready
+# CONFIGURATION EXPLANATION The 60s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect
+# runner capacity and surface broken releases quickly.
 kubectl wait --for=condition=Ready pod/nginx-full-config-demo \
   -n "${NAMESPACE}" --timeout=60s || true
 
@@ -306,6 +312,10 @@ echo -e "${CYAN}${BOLD}╔══════════════════
 echo -e "${CYAN}${BOLD}║  PHASE 9: Health Probes                                  ║${RESET}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
 kubectl apply -f "${SETUP_DIR}/09-health-checks/health-checks-demo.yaml"
+# CONFIGURATION EXPLANATION The 120s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 kubectl rollout status deployment/probes-demo -n "${NAMESPACE}" --timeout=120s
 
 echo ""

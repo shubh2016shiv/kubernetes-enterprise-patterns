@@ -14,7 +14,15 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 
 metadata:
+  # CONFIGURATION EXPLANATION `inference-gateway-pdb` is the Kubernetes API name for this PodDisruptionBudget.
+  # Humans and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: inference-gateway-pdb
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
@@ -31,10 +39,17 @@ spec:
   #   - one pod may be voluntarily evicted during maintenance
   #   - two pods should remain Ready for traffic
   #   - if only two are healthy, node drain should wait or fail
+  # CONFIGURATION EXPLANATION `2` is the minimum number of matching pods that should stay available during
+  # voluntary disruptions such as node drains. Production teams use this to avoid
+  # maintenance causing downtime.
   minAvailable: 2
 
   selector:
     matchLabels:
+      # CONFIGURATION EXPLANATION `app: inference-gateway` is a label used as a matching contract. Deployment
+      # selectors, pod template labels, and Service selectors must agree on this
+      # value, or Kubernetes will create objects that cannot find the pods they are
+      # supposed to manage or route to.
       app: inference-gateway
       tier: backend
 

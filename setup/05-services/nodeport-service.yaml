@@ -17,7 +17,15 @@ apiVersion: v1
 kind: Service
 
 metadata:
+  # CONFIGURATION EXPLANATION `inference-gateway-nodeport` is the Kubernetes API name for this Service. Humans
+  # and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: inference-gateway-nodeport
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
@@ -31,20 +39,36 @@ spec:
   #   NodePort is an easy way to expose the gateway from kind to localhost.
   # ENTERPRISE:
   #   Usually replaced by Ingress/Gateway + managed load balancer.
+  # CONFIGURATION EXPLANATION NodePort is a local-learning exposure method: Kubernetes opens a high port on
+  # every node. Production platforms usually prefer Ingress or LoadBalancer because
+  # they add safer routing, certificates, DNS names, and controlled public access.
   type: NodePort
 
   selector:
+    # CONFIGURATION EXPLANATION `app: inference-gateway` is a label used as a matching contract. Deployment
+    # selectors, pod template labels, and Service selectors must agree on this value,
+    # or Kubernetes will create objects that cannot find the pods they are supposed to
+    # manage or route to.
     app: inference-gateway
     tier: backend
 
   ports:
     - name: http
       protocol: TCP
+      # CONFIGURATION EXPLANATION `80` is the Service port clients use. A Service gives callers a stable address
+      # even when pods are replaced, so this value becomes part of the internal API
+      # contract between workloads.
       port: 80
+      # CONFIGURATION EXPLANATION `http` sends Service traffic to a container port or named port on matching
+      # pods. This is the bridge between stable Service networking and the actual
+      # application process inside each pod.
       targetPort: http
 
       # Fixed external port on every node.
       # This is intentionally pinned so the learner can hit localhost:30000 consistently.
+      # CONFIGURATION EXPLANATION `30000` opens a fixed port on each kind node so the learner can call the
+      # Service from the laptop. In enterprise clusters this is usually replaced by an
+      # Ingress or cloud load balancer with DNS, TLS, and firewall controls.
       nodePort: 30000
 
 # =============================================================================

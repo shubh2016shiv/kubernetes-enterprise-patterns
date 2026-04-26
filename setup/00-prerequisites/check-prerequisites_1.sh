@@ -230,6 +230,9 @@ fi
 # In enterprise, this is managed by your cloud provider CLI (aws, gcloud, az)
 # or by your identity platform (Vault, Teleport, etc.)
 print_header "kubeconfig Location"
+# CONFIGURATION EXPLANATION `~/.kube/config` is the file kubectl reads to find cluster addresses and
+# credentials. In production this file is treated like access material because the
+# wrong context can send commands to the wrong cluster.
 KUBECONFIG_PATH="${HOME}/.kube/config"
 if [[ -f "$KUBECONFIG_PATH" ]]; then
   echo -e "  ${GREEN}✓ Found: ${KUBECONFIG_PATH}${RESET}"

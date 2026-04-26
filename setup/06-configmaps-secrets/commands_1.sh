@@ -38,7 +38,13 @@ set -euo pipefail
 #   - Leave a production-style checklist for broken config injection.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `applications` is the namespace for both the configuration objects and the pod that
+# consumes them. ConfigMaps and Secrets are namespace-scoped, so a pod in another
+# namespace cannot read these objects by this simple name.
 NAMESPACE="applications"
+# CONFIGURATION EXPLANATION `config-demo` is the demo pod name used by follow-up kubectl commands. The script
+# keeps it in one place so log, exec, and cleanup steps all refer to the same
+# workload.
 POD_NAME="config-demo"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -93,6 +99,10 @@ echo "Secret values were applied but not printed. That is intentional."
 section "Stage 3.0: Deploy Consumer Pod"
 
 run_cmd kubectl apply -f "${SCRIPT_DIR}/pod-using-config.yaml"
+# CONFIGURATION EXPLANATION The 90s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl wait --for=condition=Ready "pod/${POD_NAME}" -n "${NAMESPACE}" --timeout=90s
 run_cmd kubectl get pod "${POD_NAME}" -n "${NAMESPACE}" -o wide
 

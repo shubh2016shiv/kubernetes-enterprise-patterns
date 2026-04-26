@@ -36,7 +36,13 @@ set -euo pipefail
 #   - Leave the learner with practical checks for quota and limit failures.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `applications` is the namespace where ResourceQuota and LimitRange policies apply.
+# In production, platform teams often set these per team or per environment so one app
+# cannot consume all shared cluster capacity.
 NAMESPACE="applications"
+# CONFIGURATION EXPLANATION `resource-managed-gateway` is the Deployment this module inspects. Scripts use the
+# name to find the matching pods, so it must stay aligned with the manifest
+# metadata.name and the app label used by selectors.
 DEPLOYMENT_NAME="resource-managed-gateway"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -87,6 +93,10 @@ run_cmd kubectl apply -f "${SCRIPT_DIR}/limit-range.yaml"
 section "Stage 3.0: Deploy Compliant Workload"
 
 run_cmd kubectl apply -f "${SCRIPT_DIR}/deployment-with-limits.yaml"
+# CONFIGURATION EXPLANATION The 90s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "${NAMESPACE}" --timeout=90s
 run_cmd kubectl get deployment "${DEPLOYMENT_NAME}" -n "${NAMESPACE}"
 run_cmd kubectl get pods -n "${NAMESPACE}" -l "app=${DEPLOYMENT_NAME}" -o wide
@@ -101,6 +111,10 @@ section "Stage 4.0: Inspect Quota Usage"
 run_cmd kubectl describe quota applications-quota -n "${NAMESPACE}"
 run_cmd kubectl describe limitrange applications-limit-range -n "${NAMESPACE}"
 
+# CONFIGURATION EXPLANATION `$(kubectl get pods -n "${NAMESPACE}" -l "app=${DEPLOYMENT_NAME}" -o
+# jsonpath='{.items[0].metadata.name}')` is the demo pod name used by follow-up
+# kubectl commands. The script keeps it in one place so log, exec, and cleanup steps
+# all refer to the same workload.
 POD_NAME="$(kubectl get pods -n "${NAMESPACE}" -l "app=${DEPLOYMENT_NAME}" -o jsonpath='{.items[0].metadata.name}')"
 echo "Inspecting one pod's requests and limits: ${POD_NAME}"
 run_cmd kubectl describe pod "${POD_NAME}" -n "${NAMESPACE}"

@@ -12,7 +12,15 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 
 metadata:
+  # CONFIGURATION EXPLANATION `gateway-observer-binding` is the Kubernetes API name for this RoleBinding. Humans
+  # and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: gateway-observer-binding
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
@@ -25,12 +33,23 @@ roleRef:
   # roleRef points to the permission set being granted.
   apiGroup: rbac.authorization.k8s.io
   kind: Role
+  # CONFIGURATION EXPLANATION `gateway-observer` is the Kubernetes API name for this Role. Humans and automation
+  # use this name in kubectl commands, audit logs, and incident runbooks, so changing
+  # it must be deliberate and coordinated with scripts that reference it.
   name: gateway-observer
 
 subjects:
   - kind: ServiceAccount
     # subjects points to the identity receiving the permissions.
+    # CONFIGURATION EXPLANATION `inference-gateway-observer-sa` is the Kubernetes API name for this Role. Humans
+    # and automation use this name in kubectl commands, audit logs, and incident
+    # runbooks, so changing it must be deliberate and coordinated with scripts that
+    # reference it.
     name: inference-gateway-observer-sa
+    # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+    # named boundary inside one cluster for permissions, quotas, network rules, and
+    # cleanup; putting this object in the wrong namespace makes selectors and scripts
+    # miss it.
     namespace: applications
 
 # =============================================================================

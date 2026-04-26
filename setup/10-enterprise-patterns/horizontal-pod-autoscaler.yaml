@@ -14,7 +14,15 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 
 metadata:
+  # CONFIGURATION EXPLANATION `inference-gateway-hpa` is the Kubernetes API name for this
+  # HorizontalPodAutoscaler. Humans and automation use this name in kubectl commands,
+  # audit logs, and incident runbooks, so changing it must be deliberate and
+  # coordinated with scripts that reference it.
   name: inference-gateway-hpa
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
@@ -29,40 +37,71 @@ spec:
     # target Deployment, and the Deployment creates/removes pods.
     apiVersion: apps/v1
     kind: Deployment
+    # CONFIGURATION EXPLANATION `inference-gateway-deployment` points at the Deployment controlled by this
+    # object. If this does not match the Deployment metadata.name, Kubernetes will
+    # create the policy object but it will not affect the intended workload.
     name: inference-gateway-deployment
 
   # Keep at least 3 replicas so the gateway has baseline availability even when
   # traffic is quiet.
+  # CONFIGURATION EXPLANATION `3` is the minimum pod count the autoscaler keeps even when traffic is low. This
+  # protects baseline availability so scale-to-zero behavior does not surprise
+  # callers.
   minReplicas: 3
 
   # Cap at 6 replicas so this local kind cluster does not overconsume the
   # learner's 16 GB Windows/Docker Desktop machine.
+  # CONFIGURATION EXPLANATION `6` is the autoscaling ceiling. It protects the local laptop from resource
+  # exhaustion; in production it also protects budgets and prevents runaway scaling
+  # during bad traffic or bad code.
   maxReplicas: 6
 
   metrics:
     - type: Resource
       resource:
+        # CONFIGURATION EXPLANATION `cpu` tells the HorizontalPodAutoscaler to scale from processor usage. This
+        # only works well when each pod also has a CPU request, because utilization is
+        # calculated as current CPU divided by requested CPU.
         name: cpu
         target:
           # Utilization compares current CPU usage against the pod's CPU request.
           # Example: a pod requesting 100m CPU and using 70m is at 70%.
           type: Utilization
+          # CONFIGURATION EXPLANATION `70` percent is the CPU utilization target. The autoscaler compares actual
+          # CPU usage to each pod CPU request, so missing or unrealistic requests make
+          # this scaling signal misleading.
           averageUtilization: 70
 
   behavior:
     scaleUp:
+      # CONFIGURATION EXPLANATION `stabilizationWindowSeconds: 60` controls how quickly the autoscaler changes
+      # replica count after seeing demand. A short window means the gateway can add capacity quickly when
+      # traffic rises, which protects users from slow responses during spikes.
       stabilizationWindowSeconds: 60
       policies:
         - type: Pods
+          # CONFIGURATION EXPLANATION `value: 2` means scale-up can add at most two pods per policy period.
+          # This prevents a sudden CPU spike from creating too many pods at once, which protects cluster
+          # capacity and cost while still responding faster than manual scaling.
           value: 2
+          # CONFIGURATION EXPLANATION `periodSeconds: 60` is the one-minute window used with `value: 2`.
+          # Together they mean "add no more than two pods per minute" during scale-up.
           periodSeconds: 60
     scaleDown:
       # Scale down more slowly than scale up. This avoids removing capacity too
       # quickly during short traffic dips.
+      # CONFIGURATION EXPLANATION `stabilizationWindowSeconds: 300` controls how quickly the autoscaler changes
+      # replica count after demand falls. Five minutes of patience avoids removing pods during a short quiet
+      # moment and then immediately needing them again, which would cause churn.
       stabilizationWindowSeconds: 300
       policies:
         - type: Pods
+          # CONFIGURATION EXPLANATION `value: 1` means scale-down removes at most one pod per policy period.
+          # Production teams often scale down more carefully than they scale up because removing too much
+          # capacity can turn a small traffic rebound into an outage.
           value: 1
+          # CONFIGURATION EXPLANATION `periodSeconds: 60` is the one-minute window used with `value: 1`.
+          # Together they mean "remove no more than one pod per minute" during scale-down.
           periodSeconds: 60
 
 # =============================================================================

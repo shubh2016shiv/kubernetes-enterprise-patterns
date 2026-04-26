@@ -36,8 +36,17 @@ set -euo pipefail
 #   - Explain how probes, Events, and logs fit together.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `applications` keeps the probe demo workload separate from system pods. That matters
+# because health-check failures in this lesson should only affect the demo Deployment,
+# not platform components such as CoreDNS.
 NAMESPACE="applications"
+# CONFIGURATION EXPLANATION `probes-demo` is the Deployment this module inspects. Scripts use the name to find
+# the matching pods, so it must stay aligned with the manifest metadata.name and the
+# app label used by selectors.
 DEPLOYMENT_NAME="probes-demo"
+# CONFIGURATION EXPLANATION `probes-demo-service` is the Service inspected by this module. A Service is the
+# stable network address in front of changing pods, so naming it explicitly makes
+# debugging endpoint readiness repeatable.
 SERVICE_NAME="probes-demo-service"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -78,6 +87,10 @@ fi
 section "Stage 2.0: Apply Health Check Demo"
 
 run_cmd kubectl apply -f "${SCRIPT_DIR}/health-checks-demo.yaml"
+# CONFIGURATION EXPLANATION The 90s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "${NAMESPACE}" --timeout=90s
 
 # ---------------------------------------------------------------------------
@@ -88,6 +101,10 @@ run_cmd kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "${NAMESPACE}"
 section "Stage 3.0: Watch Readiness and Endpoints"
 
 run_cmd kubectl get pods -n "${NAMESPACE}" -l "app=${DEPLOYMENT_NAME}" -o wide
+# CONFIGURATION EXPLANATION The 90s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl wait --for=condition=Ready pod -n "${NAMESPACE}" -l "app=${DEPLOYMENT_NAME}" --timeout=90s
 run_cmd kubectl get endpoints "${SERVICE_NAME}" -n "${NAMESPACE}"
 
@@ -98,6 +115,10 @@ run_cmd kubectl get endpoints "${SERVICE_NAME}" -n "${NAMESPACE}"
 # ---------------------------------------------------------------------------
 section "Stage 4.0: Inspect Probe State"
 
+# CONFIGURATION EXPLANATION `$(kubectl get pod -n "${NAMESPACE}" -l "app=${DEPLOYMENT_NAME}" -o
+# jsonpath='{.items[0].metadata.name}')` is the demo pod name used by follow-up
+# kubectl commands. The script keeps it in one place so log, exec, and cleanup steps
+# all refer to the same workload.
 POD_NAME="$(kubectl get pod -n "${NAMESPACE}" -l "app=${DEPLOYMENT_NAME}" -o jsonpath='{.items[0].metadata.name}')"
 echo "Inspecting pod: ${POD_NAME}"
 run_cmd kubectl describe pod "${POD_NAME}" -n "${NAMESPACE}"

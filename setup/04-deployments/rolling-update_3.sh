@@ -34,8 +34,18 @@ set -euo pipefail
 # │      └── Leave both Deployments healthy for the networking module           │
 # └────────────────────────────────────────────────────────────────────────────┘
 
+# CONFIGURATION EXPLANATION `applications` is the namespace that holds the two Deployments in this module. A
+# namespace is not a separate cluster; it is a boundary inside the cluster where
+# Kubernetes can apply permissions, quotas, and cleanup commands to one application
+# area.
 NAMESPACE="applications"
+# CONFIGURATION EXPLANATION `inference-gateway-deployment` is the Deployment name that kubectl will update, roll
+# back, or inspect. Keeping this explicit prevents the script from changing the
+# sibling Deployment when the lesson is about isolating rollout blast radius.
 GATEWAY_DEPLOYMENT="inference-gateway-deployment"
+# CONFIGURATION EXPLANATION `risk-profile-api-deployment` is the Deployment name that kubectl will update, roll
+# back, or inspect. Keeping this explicit prevents the script from changing the
+# sibling Deployment when the lesson is about isolating rollout blast radius.
 BACKEND_DEPLOYMENT="risk-profile-api-deployment"
 MANIFESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -65,6 +75,10 @@ echo ""
 run_cmd kubectl apply -f "${MANIFESTS_DIR}/risk-profile-api-deployment.yaml" -n "${NAMESPACE}"
 run_cmd kubectl apply -f "${MANIFESTS_DIR}/inference-gateway-deployment.yaml" -n "${NAMESPACE}"
 
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${BACKEND_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 
@@ -91,6 +105,10 @@ run_cmd kubectl set image deployment/"${GATEWAY_DEPLOYMENT}" \
   gateway=python:3.12.8-slim \
   --namespace="${NAMESPACE}"
 
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get deployments -n "${NAMESPACE}"
 run_cmd kubectl get replicasets -n "${NAMESPACE}" -l app=inference-gateway
@@ -127,6 +145,10 @@ echo "Rolling back does not rewrite the backend Deployment."
 echo ""
 
 run_cmd kubectl rollout undo deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}"
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 
 GATEWAY_POD_NAME=$(kubectl get pod -n "${NAMESPACE}" -l app=inference-gateway -o jsonpath='{.items[0].metadata.name}')
@@ -144,6 +166,10 @@ run_cmd kubectl scale deployment/"${GATEWAY_DEPLOYMENT}" --replicas=5 -n "${NAME
 run_cmd kubectl get pods -n "${NAMESPACE}" -l app=inference-gateway
 
 run_cmd kubectl scale deployment/"${GATEWAY_DEPLOYMENT}" --replicas=3 -n "${NAMESPACE}"
+# CONFIGURATION EXPLANATION The 120s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=120s
 
 # ─────────────────────────────────────────────────────────────────────────────

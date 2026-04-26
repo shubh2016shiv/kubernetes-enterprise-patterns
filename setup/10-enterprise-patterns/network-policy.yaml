@@ -27,7 +27,15 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 
 metadata:
+  # CONFIGURATION EXPLANATION `default-deny-applications` is the Kubernetes API name for this NetworkPolicy.
+  # Humans and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: default-deny-applications
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/component: network-policy
@@ -37,10 +45,16 @@ metadata:
 
 spec:
   # Empty podSelector means "all pods in this namespace."
+  # CONFIGURATION EXPLANATION `podSelector: {}` means "select every pod in the `applications` namespace."
+  # Because this policy has no allow rules, selecting every pod creates the
+  # default-deny baseline that later policies open carefully.
   podSelector: {}
 
   # Listing both directions activates default deny for incoming and outgoing
   # traffic on selected pods.
+  # CONFIGURATION EXPLANATION `policyTypes` tells Kubernetes which traffic directions this policy controls.
+  # Listing both `Ingress` and `Egress` means selected pods deny incoming and outgoing
+  # traffic unless another policy allows a specific path.
   policyTypes:
     - Ingress
     - Egress
@@ -57,7 +71,14 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 
 metadata:
+  # CONFIGURATION EXPLANATION `allow-dns-egress` is the Kubernetes API name for this NetworkPolicy. Humans and
+  # automation use this name in kubectl commands, audit logs, and incident runbooks,
+  # so changing it must be deliberate and coordinated with scripts that reference it.
   name: allow-dns-egress
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/component: network-policy
@@ -66,15 +87,29 @@ metadata:
     description: "Allow pods to query DNS after default-deny egress is enabled."
 
 spec:
+  # CONFIGURATION EXPLANATION `podSelector: {}` applies this DNS exception to every pod in the namespace. That
+  # is intentional because almost every workload needs DNS before it can call a
+  # Kubernetes Service by name.
   podSelector: {}
+  # CONFIGURATION EXPLANATION `policyTypes: Egress` means this policy only controls traffic leaving pods. It
+  # does not open any incoming traffic; it only lets selected pods send DNS queries
+  # out.
   policyTypes:
     - Egress
 
+  # CONFIGURATION EXPLANATION `egress` lists allowed outbound traffic. With default-deny enabled, a pod can only
+  # send traffic that matches an egress rule such as this DNS exception.
   egress:
     - ports:
         - protocol: UDP
+          # CONFIGURATION EXPLANATION `53` is the standard DNS port. Allowing UDP 53 lets pods resolve Service
+          # names such as `risk-profile-api-clusterip`; without DNS, service discovery breaks even if the
+          # application and Service objects are healthy.
           port: 53
         - protocol: TCP
+          # CONFIGURATION EXPLANATION `53` is also allowed over TCP because DNS can fall back to TCP for larger
+          # responses. Production network policies usually allow both UDP and TCP DNS to avoid hard-to-debug
+          # name resolution failures.
           port: 53
 
 ---
@@ -89,7 +124,15 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 
 metadata:
+  # CONFIGURATION EXPLANATION `allow-gateway-ingress` is the Kubernetes API name for this NetworkPolicy. Humans
+  # and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: allow-gateway-ingress
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
@@ -99,14 +142,27 @@ metadata:
     description: "Allow trusted traffic to reach the inference gateway pods."
 
 spec:
+  # CONFIGURATION EXPLANATION This `podSelector` chooses the gateway pods as the destination being protected.
+  # The labels must match `inference-gateway-deployment.yaml`, or the policy will
+  # protect no pods.
   podSelector:
     matchLabels:
+      # CONFIGURATION EXPLANATION `app: inference-gateway` is a label used as a matching contract. Deployment
+      # selectors, pod template labels, and Service selectors must agree on this
+      # value, or Kubernetes will create objects that cannot find the pods they are
+      # supposed to manage or route to.
       app: inference-gateway
       tier: backend
 
+  # CONFIGURATION EXPLANATION `policyTypes: Ingress` means this policy only controls traffic entering the
+  # selected gateway pods. It does not grant the gateway permission to call other
+  # services.
   policyTypes:
     - Ingress
 
+  # CONFIGURATION EXPLANATION `ingress` lists allowed incoming callers for the gateway. In production this is
+  # where platform teams narrow access to an ingress controller, service mesh gateway,
+  # or trusted namespace.
   ingress:
     - from:
         # LOCAL SHORTCUT:
@@ -123,10 +179,16 @@ spec:
         # mesh gateway identity instead of allowing every source IP.
         - ipBlock:
             cidr: 0.0.0.0/0
+      # CONFIGURATION EXPLANATION `ports` narrows the allowed gateway traffic to one destination port. Without
+      # this, a matching source could reach any open port on the selected gateway
+      # pods.
       ports:
         # The gateway container listens on 8080. The Service exposes port 80 but
         # NetworkPolicy protects pod traffic at the container port.
         - protocol: TCP
+          # CONFIGURATION EXPLANATION `8080` is the gateway container port, not the external NodePort. NetworkPolicy
+          # filters pod-to-pod traffic at the destination pod port, so this must match
+          # `inference-gateway-deployment.yaml` containerPort.
           port: 8080
 
 ---
@@ -141,7 +203,15 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 
 metadata:
+  # CONFIGURATION EXPLANATION `allow-gateway-to-risk-api` is the Kubernetes API name for this NetworkPolicy.
+  # Humans and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: allow-gateway-to-risk-api
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: risk-profile-api
@@ -151,24 +221,42 @@ metadata:
     description: "Allow gateway pods to call risk-profile-api pods."
 
 spec:
+  # CONFIGURATION EXPLANATION This `podSelector` chooses the backend pods as the protected destination. The
+  # gateway may call only these selected backend pods, not every backend-like workload
+  # in the namespace.
   podSelector:
     matchLabels:
+      # CONFIGURATION EXPLANATION `app: risk-profile-api` is a label used as a matching contract. Deployment
+      # selectors, pod template labels, and Service selectors must agree on this
+      # value, or Kubernetes will create objects that cannot find the pods they are
+      # supposed to manage or route to.
       app: risk-profile-api
       tier: backend
 
+  # CONFIGURATION EXPLANATION `policyTypes: Ingress` means this rule opens incoming traffic to the backend but
+  # does not allow the backend to initiate new outbound calls.
   policyTypes:
     - Ingress
 
+  # CONFIGURATION EXPLANATION This `ingress` rule allows only pods with the gateway label to call the backend.
+  # That models production east-west traffic control: one known service path is
+  # allowed, broad namespace access is not.
   ingress:
     - from:
         - podSelector:
             matchLabels:
               app: inference-gateway
               tier: backend
+      # CONFIGURATION EXPLANATION `ports` keeps the gateway-to-backend allow rule limited to the backend API
+      # port. This reduces blast radius if the backend container exposes another port
+      # by mistake.
       ports:
         # The backend container listens on named port http, which maps to 8081
         # in risk-profile-api-deployment.yaml.
         - protocol: TCP
+          # CONFIGURATION EXPLANATION `8081` is the backend container port protected by this ingress rule. It
+          # must match `risk-profile-api-deployment.yaml`; otherwise the policy can allow the wrong port while
+          # blocking the traffic the backend actually needs.
           port: 8081
 
 ---
@@ -183,7 +271,15 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 
 metadata:
+  # CONFIGURATION EXPLANATION `allow-gateway-egress-to-risk-api` is the Kubernetes API name for this
+  # NetworkPolicy. Humans and automation use this name in kubectl commands, audit
+  # logs, and incident runbooks, so changing it must be deliberate and coordinated
+  # with scripts that reference it.
   name: allow-gateway-egress-to-risk-api
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
@@ -193,22 +289,36 @@ metadata:
     description: "Allow gateway pods to send traffic to risk-profile-api pods."
 
 spec:
+  # CONFIGURATION EXPLANATION This `podSelector` chooses the gateway pods as the source for the egress rule.
+  # Only those pods get permission to send traffic to the backend destination below.
   podSelector:
     matchLabels:
       app: inference-gateway
       tier: backend
 
+  # CONFIGURATION EXPLANATION `policyTypes: Egress` means this policy controls traffic leaving the gateway pods.
+  # It does not open the gateway for callers; that is handled by a separate ingress
+  # policy.
   policyTypes:
     - Egress
 
+  # CONFIGURATION EXPLANATION `egress` lists where the gateway is allowed to send traffic. With default-deny in
+  # place, the gateway needs this explicit rule before backend calls can leave the
+  # pod.
   egress:
     - to:
         - podSelector:
             matchLabels:
               app: risk-profile-api
               tier: backend
+      # CONFIGURATION EXPLANATION `ports` limits gateway egress to the backend API port. This keeps the allowed
+      # path precise: gateway pods can call the backend API, but not arbitrary ports
+      # on backend pods.
       ports:
         - protocol: TCP
+          # CONFIGURATION EXPLANATION `8081` is the destination port for gateway-to-backend calls. This egress
+          # rule must line up with the backend ingress rule above, or traffic may be allowed in one direction
+          # but denied in the other.
           port: 8081
 
 # =============================================================================

@@ -10,6 +10,11 @@ However, you MUST understand Pods because when something breaks, you don't debug
 
 ## Architecture
 
+A **sidecar** is a helper container that runs in the same Pod as the main application container.
+It is not a separate service and it is not a second copy of the app. It shares the Pod's network
+and volumes, so it can support the app closely. In this module, the app writes log lines to a
+shared folder and the sidecar reads that folder to stream the logs.
+
 ```text
 ┌────────────────────────────────────────────────────────────┐
 │                    NODE (Worker)                           │
@@ -19,7 +24,8 @@ However, you MUST understand Pods because when something breaks, you don't debug
 │  │                                                      │  │
 │  │  ┌───────────────┐               ┌───────────────┐   │  │
 │  │  │ Container 1   │               │ Container 2   │   │  │
-│  │  │ (App)         │               │ (Sidecar)     │   │  │
+│  │  │ (App)         │               │ (Sidecar      │   │  │
+│  │  │               │               │  helper)      │   │  │
 │  │  │ port 8080     │ ◄── Localhost ┤ port 9090     │   │  │
 │  │  └───────────────┘               └───────────────┘   │  │
 │  │                                                      │  │
@@ -33,7 +39,7 @@ However, you MUST understand Pods because when something breaks, you don't debug
 
 1. **Understand a Minimal Pod**: Review `01-minimal-pod.yaml`. Notice how resource requests and limits are defined. 
 2. **Environment Variables**: Review `02-pod-with-env.yaml`. Notice how the `Downward API` exposes cluster info into the container environment.
-3. **Multi-Container Pods**: Review `03-multi-container-pod.yaml`. Notice the "Sidecar" pattern where a secondary container ships logs for the primary app. This is how Service Meshes (Istio) and monitoring agents work.
+3. **Multi-Container Pods**: Review `03-multi-container-pod.yaml`. Notice the sidecar pattern: one primary app container does the business work, and one helper container supports it by shipping logs. This is how service meshes such as Istio and Linkerd, and many monitoring agents, attach platform behavior to an app without changing the app code.
 4. **Apply and Inspect**: Run the `pod-commands.sh` script to create these pods and learn how to view logs, execute commands inside them, and query their status.
 
 ## Commands
@@ -83,7 +89,7 @@ The pod reached `Ready=True`. This means containers started and are passing read
 `platform-debug-toolbox` as `1/1 Running`,
 `inference-worker-config-demo` as `1/1 Running`,
 `inference-with-log-sidecar` as `2/2 Running`.
-`2/2` is correct for sidecar pattern because app + log sidecar both must be ready.
+`2/2` is correct for the sidecar pattern because the Pod has two containers: the main app container and the log helper container. Kubernetes counts both because both must be running for the Pod to be fully healthy.
 
 4. `kubectl describe pod platform-debug-toolbox` shows:
 `Status: Running`, `Ready: True`, resource requests/limits, node placement, and normal Events:
@@ -99,7 +105,7 @@ This is normal when no requests have hit the app yet. The app writes access entr
 
 7. `kubectl logs inference-with-log-sidecar -c log-shipper` initially shows:
 `waiting for app log file...`
-This is also normal before first request. After traffic hits `/health`, sidecar should emit lines prefixed with `[inference-log]`.
+This is also normal before first request. After traffic hits `/health`, the sidecar helper container should emit lines prefixed with `[inference-log]`.
 
 8. `nslookup kubernetes.default.svc.cluster.local` succeeds:
 CoreDNS is healthy and in-cluster service discovery is working.
@@ -116,7 +122,7 @@ If this fails with a weird `pods ".items[*]..." not found` error, command argume
 | What we do locally | What enterprise does | Why it differs |
 |---|---|---|
 | Apply raw Pod YAMLs | Use Deployments/StatefulSets | Raw pods do not self-heal. If the node dies, a raw pod is gone forever. Deployments recreate them. |
-| Basic sidecars | Service Meshes (Istio, Linkerd) | Enterprise platforms inject sidecars automatically via Admission Controllers for MTLS, tracing, and logging. |
+| Basic sidecars: helper containers in the same Pod as the app | Service meshes such as Istio and Linkerd, or monitoring/logging agents | Enterprise platforms often inject these helper containers automatically so teams get mutual TLS (encrypted service-to-service traffic), tracing, and logging without rewriting every app. |
 | Hardcoded environment vars | Externalized config | In production, config comes from Vault, AWS Secrets Manager, ConfigMaps, or GitOps parameter overrides. |
 
 ## What to Check If Something Goes Wrong

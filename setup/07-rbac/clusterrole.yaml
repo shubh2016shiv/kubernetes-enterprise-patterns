@@ -13,6 +13,10 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 
 metadata:
+  # CONFIGURATION EXPLANATION `prometheus-read-cluster-state` is the Kubernetes API name for this ClusterRole.
+  # Humans and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: prometheus-read-cluster-state
   labels:
     app.kubernetes.io/name: prometheus
@@ -25,13 +29,25 @@ rules:
   - apiGroups: [""]
     # These resources are in the core API group. Nodes and namespaces are
     # cluster-scoped, so a namespace Role cannot grant access to them.
+    # CONFIGURATION EXPLANATION `resources` lists the object types this permission applies to, such as pods,
+    # services, or secrets. Least privilege means naming only the resources the
+    # workload actually needs, not granting access to everything.
     resources: ["nodes", "namespaces", "pods", "services", "endpoints"]
+    # CONFIGURATION EXPLANATION `verbs` are the allowed actions, such as get, list, watch, create, or delete.
+    # Production reviews verbs carefully because read-only access is much safer than
+    # permissions that modify or remove workloads.
     verbs: ["get", "list", "watch"]
 
   - apiGroups: ["apps"]
     # Monitoring needs to discover common workload controllers so dashboards can
     # connect pod health back to Deployments, StatefulSets, and DaemonSets.
+    # CONFIGURATION EXPLANATION `resources` lists the object types this permission applies to, such as pods,
+    # services, or secrets. Least privilege means naming only the resources the
+    # workload actually needs, not granting access to everything.
     resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    # CONFIGURATION EXPLANATION `verbs` are the allowed actions, such as get, list, watch, create, or delete.
+    # Production reviews verbs carefully because read-only access is much safer than
+    # permissions that modify or remove workloads.
     verbs: ["get", "list", "watch"]
 
 # =============================================================================

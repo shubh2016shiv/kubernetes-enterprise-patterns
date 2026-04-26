@@ -36,9 +36,21 @@ set -euo pipefail
 #   - Leave the learner with the RBAC checks used in real incidents.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `applications` is the namespace for the app-facing RBAC example. A namespace is a
+# named boundary inside one Kubernetes cluster; Role and RoleBinding objects inside it
+# only grant permissions inside that boundary unless a ClusterRoleBinding is used.
 APP_NAMESPACE="applications"
+# CONFIGURATION EXPLANATION `monitoring` is separated from `applications` to model a production platform team
+# pattern: observability tools live in their own namespace while collecting read-only
+# signals from many application namespaces.
 MONITORING_NAMESPACE="monitoring"
+# CONFIGURATION EXPLANATION `inference-gateway-observer-sa` is a ServiceAccount, meaning a Kubernetes identity
+# for code running in the cluster, not a person. This identity is intentionally used
+# to prove read-only application access without allowing Secret reads or pod deletion.
 APP_SERVICE_ACCOUNT="inference-gateway-observer-sa"
+# CONFIGURATION EXPLANATION `prometheus-scraper-sa` represents a monitoring collector. Monitoring needs broad
+# read visibility, but it should still be a named Kubernetes identity so every allowed
+# action can be reviewed and audited.
 MONITORING_SERVICE_ACCOUNT="prometheus-scraper-sa"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -110,6 +122,9 @@ run_cmd kubectl apply -f "${SCRIPT_DIR}/rolebinding.yaml"
 # ---------------------------------------------------------------------------
 section "Stage 3.0: Test Application ServiceAccount Permissions"
 
+# CONFIGURATION EXPLANATION `system:serviceaccount:<namespace>:<name>` is the exact username format Kubernetes
+# uses when checking a ServiceAccount. Building it here lets `kubectl auth can-i` ask,
+# "what could this workload identity do if it ran in the cluster?"
 APP_SUBJECT="system:serviceaccount:${APP_NAMESPACE}:${APP_SERVICE_ACCOUNT}"
 
 can_i "yes" "Can observer get pods?" \
@@ -137,6 +152,9 @@ section "Stage 4.0: Apply Cluster-Scoped Monitoring RBAC"
 run_cmd kubectl apply -f "${SCRIPT_DIR}/clusterrole.yaml"
 run_cmd kubectl apply -f "${SCRIPT_DIR}/clusterrolebinding.yaml"
 
+# CONFIGURATION EXPLANATION This subject string tests the monitoring ServiceAccount exactly as the Kubernetes
+# API sees it. That prevents a common production mistake: testing permissions as your
+# admin user instead of the workload identity that will actually run.
 MONITORING_SUBJECT="system:serviceaccount:${MONITORING_NAMESPACE}:${MONITORING_SERVICE_ACCOUNT}"
 
 can_i "yes" "Can monitoring identity list nodes cluster-wide?" \

@@ -16,13 +16,25 @@ apiVersion: apps/v1
 kind: Deployment
 
 metadata:
+  # CONFIGURATION EXPLANATION `inference-gateway-deployment` is the Kubernetes API name for this Deployment.
+  # Humans and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: inference-gateway-deployment
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
     app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/component: edge-gateway
     app.kubernetes.io/part-of: platform-networking-lab
+    # CONFIGURATION EXPLANATION `app: inference-gateway` is a label used as a matching contract. Deployment
+    # selectors, pod template labels, and Service selectors must agree on this value,
+    # or Kubernetes will create objects that cannot find the pods they are supposed to
+    # manage or route to.
     app: inference-gateway
     tier: backend
   annotations:
@@ -38,6 +50,9 @@ spec:
   #   Three lightweight replicas still fit on the 16 GB learner machine.
   # ENTERPRISE:
   #   A production gateway often starts at 3+ replicas and then scales with HPA.
+  # CONFIGURATION EXPLANATION `3` replicas means Kubernetes should keep that many pod copies running. More than
+  # one copy teaches availability and rolling updates: one pod can be replaced or fail
+  # while another continues serving traffic.
   replicas: 3
 
   # The selector is the ownership contract between Deployment and pods.
@@ -52,7 +67,13 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
+      # CONFIGURATION EXPLANATION `1` is how many pods may be unavailable during a rollout or disruption. It is
+      # a safety valve: updates can proceed, but Kubernetes must keep enough capacity
+      # alive for users.
       maxUnavailable: 1
+      # CONFIGURATION EXPLANATION `1` allows Kubernetes to create temporary extra pods during a rollout. This
+      # adds short-term capacity so new pods can become ready before old pods are
+      # removed.
       maxSurge: 1
 
   template:
@@ -80,7 +101,15 @@ spec:
           # The image is intentionally simple so the module can focus on Deployment behavior.
           # ENTERPRISE:
           #   Replace this with an internally built, scanned, and signed image.
+          # CONFIGURATION EXPLANATION `python:3.11.11-slim` is the container image that will run in the pod. The
+          # tag is part of the release decision: production teams avoid unpinned
+          # `latest` images so rollbacks, audits, and vulnerability scans know exactly
+          # which artifact was deployed.
           image: python:3.11.11-slim
+          # CONFIGURATION EXPLANATION `IfNotPresent` tells kubelet when to pull the image from a registry. In
+          # this lab it avoids unnecessary downloads; in production the pull policy is
+          # chosen together with immutable image tags so deployments are both
+          # repeatable and fresh when intended.
           imagePullPolicy: IfNotPresent
 
           command:
@@ -236,6 +265,9 @@ spec:
 
           ports:
             - name: http
+              # CONFIGURATION EXPLANATION `8080` is the port the process inside the container listens on. A
+              # Service targetPort or probe must point here; if the numbers do not
+              # line up, the pod can be running while traffic still fails.
               containerPort: 8080
 
           env:
@@ -266,30 +298,105 @@ spec:
             - name: RISK_PROFILE_API_BASE_URL
               value: "http://risk-profile-api-clusterip"
 
+          # CONFIGURATION EXPLANATION `resources` lists the object types this permission applies to, such as
+          # pods, services, or secrets. Least privilege means naming only the
+          # resources the workload actually needs, not granting access to everything.
           resources:
+            # CONFIGURATION EXPLANATION Resource requests are the minimum CPU and memory the scheduler reserves
+            # for this container. They affect which node the pod can land on and form
+            # the baseline used by autoscaling, capacity planning, and cost
+            # forecasting.
             requests:
+              # CONFIGURATION EXPLANATION `100m` is a CPU amount; `100m` means one tenth of one CPU core.
+              # Requests reserve scheduling capacity, while limits cap usage, so the
+              # same-looking field can mean either baseline capacity or a hard ceiling
+              # depending on its parent section.
               cpu: "100m"
+              # CONFIGURATION EXPLANATION `128Mi` is a memory amount. Memory is not compressible like CPU: if a
+              # container exceeds its memory limit, Kubernetes may kill it, so
+              # production teams set this from observed usage plus headroom.
               memory: "128Mi"
+            # CONFIGURATION EXPLANATION Resource limits are the maximum CPU and memory this container is allowed
+            # to use. They protect the node and neighboring pods from one workload
+            # consuming everything, which is a core multi-tenant production safety
+            # rule.
             limits:
+              # CONFIGURATION EXPLANATION `500m` is a CPU amount; `100m` means one tenth of one CPU core.
+              # Requests reserve scheduling capacity, while limits cap usage, so the
+              # same-looking field can mean either baseline capacity or a hard ceiling
+              # depending on its parent section.
               cpu: "500m"
+              # CONFIGURATION EXPLANATION `512Mi` is a memory amount. Memory is not compressible like CPU: if a
+              # container exceeds its memory limit, Kubernetes may kill it, so
+              # production teams set this from observed usage plus headroom.
               memory: "512Mi"
 
+          # CONFIGURATION EXPLANATION A liveness probe asks whether the running container is stuck badly enough
+          # that restarting it is the right recovery action. It is a self-healing
+          # mechanism, not a traffic-routing check.
           livenessProbe:
             httpGet:
+              # CONFIGURATION EXPLANATION `/health` is the HTTP path Kubernetes calls for this check. The
+              # application team owns what this endpoint means; production readiness
+              # endpoints should verify serving ability, while liveness endpoints
+              # should stay simple enough to avoid false restarts.
               path: /health
+              # CONFIGURATION EXPLANATION `http` is the Service port clients use. A Service gives callers a
+              # stable address even when pods are replaced, so this value becomes part
+              # of the internal API contract between workloads.
               port: http
+            # CONFIGURATION EXPLANATION `initialDelaySeconds: 15` waits after container start before probing,
+            # giving the process time to open its port. Probe timing is a production
+            # tradeoff: faster detection helps recovery, but overly aggressive values
+            # create false alarms during normal load.
             initialDelaySeconds: 15
+            # CONFIGURATION EXPLANATION `periodSeconds: 20` sets how often Kubernetes repeats the probe. Probe
+            # timing is a production tradeoff: faster detection helps recovery, but
+            # overly aggressive values create false alarms during normal load.
             periodSeconds: 20
+            # CONFIGURATION EXPLANATION `timeoutSeconds: 5` sets how long Kubernetes waits for one probe
+            # response before counting it as failed. Probe timing is a production
+            # tradeoff: faster detection helps recovery, but overly aggressive values
+            # create false alarms during normal load.
             timeoutSeconds: 5
+            # CONFIGURATION EXPLANATION `failureThreshold: 3` sets how many failed probes Kubernetes tolerates
+            # before marking the pod unhealthy or not ready. Probe timing is a
+            # production tradeoff: faster detection helps recovery, but overly
+            # aggressive values create false alarms during normal load.
             failureThreshold: 3
 
+          # CONFIGURATION EXPLANATION A readiness probe asks whether this pod should receive Service traffic
+          # right now. A pod can be alive but not ready, for example while loading
+          # config, warming caches, or waiting for a dependency.
           readinessProbe:
             httpGet:
+              # CONFIGURATION EXPLANATION `/ready` is the HTTP path Kubernetes calls for this check. The
+              # application team owns what this endpoint means; production readiness
+              # endpoints should verify serving ability, while liveness endpoints
+              # should stay simple enough to avoid false restarts.
               path: /ready
+              # CONFIGURATION EXPLANATION `http` is the Service port clients use. A Service gives callers a
+              # stable address even when pods are replaced, so this value becomes part
+              # of the internal API contract between workloads.
               port: http
+            # CONFIGURATION EXPLANATION `initialDelaySeconds: 5` waits after container start before probing,
+            # giving the process time to open its port. Probe timing is a production
+            # tradeoff: faster detection helps recovery, but overly aggressive values
+            # create false alarms during normal load.
             initialDelaySeconds: 5
+            # CONFIGURATION EXPLANATION `periodSeconds: 5` sets how often Kubernetes repeats the probe. Probe
+            # timing is a production tradeoff: faster detection helps recovery, but
+            # overly aggressive values create false alarms during normal load.
             periodSeconds: 5
+            # CONFIGURATION EXPLANATION `timeoutSeconds: 3` sets how long Kubernetes waits for one probe
+            # response before counting it as failed. Probe timing is a production
+            # tradeoff: faster detection helps recovery, but overly aggressive values
+            # create false alarms during normal load.
             timeoutSeconds: 3
+            # CONFIGURATION EXPLANATION `failureThreshold: 12` sets how many failed probes Kubernetes tolerates
+            # before marking the pod unhealthy or not ready. Probe timing is a
+            # production tradeoff: faster detection helps recovery, but overly
+            # aggressive values create false alarms during normal load.
             failureThreshold: 12
 
           lifecycle:

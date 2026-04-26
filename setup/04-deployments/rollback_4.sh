@@ -26,8 +26,18 @@ set -euo pipefail
 # │      └── Wait for rollout to complete and confirm backend is still stable  │
 # └────────────────────────────────────────────────────────────────────────────┘
 
+# CONFIGURATION EXPLANATION `applications` is the namespace that holds the two Deployments in this module. A
+# namespace is not a separate cluster; it is a boundary inside the cluster where
+# Kubernetes can apply permissions, quotas, and cleanup commands to one application
+# area.
 NAMESPACE="applications"
+# CONFIGURATION EXPLANATION `inference-gateway-deployment` is the Deployment name that kubectl will update, roll
+# back, or inspect. Keeping this explicit prevents the script from changing the
+# sibling Deployment when the lesson is about isolating rollout blast radius.
 GATEWAY_DEPLOYMENT="inference-gateway-deployment"
+# CONFIGURATION EXPLANATION `risk-profile-api-deployment` is the Deployment name that kubectl will update, roll
+# back, or inspect. Keeping this explicit prevents the script from changing the
+# sibling Deployment when the lesson is about isolating rollout blast radius.
 BACKEND_DEPLOYMENT="risk-profile-api-deployment"
 
 section() {
@@ -51,6 +61,10 @@ echo ""
 run_cmd kubectl rollout undo deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}"
 
 section "Stage 3.0: Verify Health"
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get pods -n "${NAMESPACE}" -l app=inference-gateway -o wide
 run_cmd kubectl get deployment "${BACKEND_DEPLOYMENT}" -n "${NAMESPACE}"

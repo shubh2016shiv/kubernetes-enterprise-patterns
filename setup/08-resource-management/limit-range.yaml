@@ -14,7 +14,15 @@ apiVersion: v1
 kind: LimitRange
 
 metadata:
+  # CONFIGURATION EXPLANATION `applications-limit-range` is the Kubernetes API name for this LimitRange. Humans
+  # and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: applications-limit-range
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: applications
@@ -24,44 +32,88 @@ metadata:
     description: "Default and min/max resource bounds for application containers."
 
 spec:
+  # CONFIGURATION EXPLANATION Resource limits are the maximum CPU and memory this container is allowed to use.
+  # They protect the node and neighboring pods from one workload consuming everything,
+  # which is a core multi-tenant production safety rule.
   limits:
     - type: Container
       # defaultRequest is injected when a container omits requests. Requests are
       # what the scheduler uses to decide whether a node has enough capacity.
       defaultRequest:
+        # CONFIGURATION EXPLANATION `100m` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+        # reserve scheduling capacity, while limits cap usage, so the same-looking
+        # field can mean either baseline capacity or a hard ceiling depending on its
+        # parent section.
         cpu: "100m"
+        # CONFIGURATION EXPLANATION `128Mi` is a memory amount. Memory is not compressible like CPU: if a
+        # container exceeds its memory limit, Kubernetes may kill it, so production
+        # teams set this from observed usage plus headroom.
         memory: "128Mi"
 
       # default is injected as the container limit when a container omits limits.
       # CPU over the limit is throttled; memory over the limit can be killed.
       default:
+        # CONFIGURATION EXPLANATION `500m` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+        # reserve scheduling capacity, while limits cap usage, so the same-looking
+        # field can mean either baseline capacity or a hard ceiling depending on its
+        # parent section.
         cpu: "500m"
+        # CONFIGURATION EXPLANATION `256Mi` is a memory amount. Memory is not compressible like CPU: if a
+        # container exceeds its memory limit, Kubernetes may kill it, so production
+        # teams set this from observed usage plus headroom.
         memory: "256Mi"
 
       # max prevents a single container from consuming too much of the namespace
       # quota or exceeding what this small kind cluster should handle.
       max:
+        # CONFIGURATION EXPLANATION `1` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+        # reserve scheduling capacity, while limits cap usage, so the same-looking
+        # field can mean either baseline capacity or a hard ceiling depending on its
+        # parent section.
         cpu: "1"
+        # CONFIGURATION EXPLANATION `512Mi` is a memory amount. Memory is not compressible like CPU: if a
+        # container exceeds its memory limit, Kubernetes may kill it, so production
+        # teams set this from observed usage plus headroom.
         memory: "512Mi"
 
       # min prevents unrealistic requests that make the scheduler overpack nodes.
       min:
+        # CONFIGURATION EXPLANATION `10m` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+        # reserve scheduling capacity, while limits cap usage, so the same-looking
+        # field can mean either baseline capacity or a hard ceiling depending on its
+        # parent section.
         cpu: "10m"
+        # CONFIGURATION EXPLANATION `32Mi` is a memory amount. Memory is not compressible like CPU: if a
+        # container exceeds its memory limit, Kubernetes may kill it, so production
+        # teams set this from observed usage plus headroom.
         memory: "32Mi"
 
     - type: Pod
       # Pod max catches multi-container pods where each container is legal but
       # the combined pod would still be too large for the namespace pattern.
       max:
+        # CONFIGURATION EXPLANATION `2` is a CPU amount; `100m` means one tenth of one CPU core. Requests
+        # reserve scheduling capacity, while limits cap usage, so the same-looking
+        # field can mean either baseline capacity or a hard ceiling depending on its
+        # parent section.
         cpu: "2"
+        # CONFIGURATION EXPLANATION `1Gi` is a memory amount. Memory is not compressible like CPU: if a
+        # container exceeds its memory limit, Kubernetes may kill it, so production
+        # teams set this from observed usage plus headroom.
         memory: "1Gi"
 
     - type: PersistentVolumeClaim
       # Storage quotas matter because PVCs can consume real disk or cloud volume
       # capacity. This lab keeps PVCs small for Docker Desktop.
       min:
+        # CONFIGURATION EXPLANATION `storage: 1Gi` controls persistent storage behavior. Storage settings decide
+        # where data appears in the container, how much durable capacity is requested,
+        # and which storage backend provides it in production.
         storage: "1Gi"
       max:
+        # CONFIGURATION EXPLANATION `storage: 10Gi` controls persistent storage behavior. Storage settings
+        # decide where data appears in the container, how much durable capacity is
+        # requested, and which storage backend provides it in production.
         storage: "10Gi"
 
 # =============================================================================

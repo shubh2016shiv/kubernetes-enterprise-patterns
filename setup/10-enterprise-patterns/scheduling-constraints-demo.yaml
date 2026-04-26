@@ -14,9 +14,21 @@ apiVersion: apps/v1
 kind: Deployment
 
 metadata:
+  # CONFIGURATION EXPLANATION `scheduling-constraints-demo` is the Kubernetes API name for this Deployment.
+  # Humans and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: scheduling-constraints-demo
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
+    # CONFIGURATION EXPLANATION `app: scheduling-constraints-demo` is a label used as a matching contract.
+    # Deployment selectors, pod template labels, and Service selectors must agree on
+    # this value, or Kubernetes will create objects that cannot find the pods they are
+    # supposed to manage or route to.
     app: scheduling-constraints-demo
     app.kubernetes.io/component: scheduling-policy-demo
     app.kubernetes.io/part-of: kubernetes-fundamentals-lab
@@ -24,6 +36,9 @@ metadata:
     description: "Small workload used to inspect scheduler placement constraints."
 
 spec:
+  # CONFIGURATION EXPLANATION `2` replicas means Kubernetes should keep that many pod copies running. More than
+  # one copy teaches availability and rolling updates: one pod can be replaced or fail
+  # while another continues serving traffic.
   replicas: 2
 
   selector:
@@ -87,19 +102,55 @@ spec:
 
       containers:
         - name: web
+          # CONFIGURATION EXPLANATION `nginx:1.25.4` is the container image that will run in the pod. The tag is
+          # part of the release decision: production teams avoid unpinned `latest`
+          # images so rollbacks, audits, and vulnerability scans know exactly which
+          # artifact was deployed.
           image: nginx:1.25.4
+          # CONFIGURATION EXPLANATION `IfNotPresent` tells kubelet when to pull the image from a registry. In
+          # this lab it avoids unnecessary downloads; in production the pull policy is
+          # chosen together with immutable image tags so deployments are both
+          # repeatable and fresh when intended.
           imagePullPolicy: IfNotPresent
 
           ports:
             - name: http
+              # CONFIGURATION EXPLANATION `80` is the port the process inside the container listens on. A
+              # Service targetPort or probe must point here; if the numbers do not
+              # line up, the pod can be running while traffic still fails.
               containerPort: 80
 
+          # CONFIGURATION EXPLANATION `resources` lists the object types this permission applies to, such as
+          # pods, services, or secrets. Least privilege means naming only the
+          # resources the workload actually needs, not granting access to everything.
           resources:
+            # CONFIGURATION EXPLANATION Resource requests are the minimum CPU and memory the scheduler reserves
+            # for this container. They affect which node the pod can land on and form
+            # the baseline used by autoscaling, capacity planning, and cost
+            # forecasting.
             requests:
+              # CONFIGURATION EXPLANATION `50m` is a CPU amount; `100m` means one tenth of one CPU core.
+              # Requests reserve scheduling capacity, while limits cap usage, so the
+              # same-looking field can mean either baseline capacity or a hard ceiling
+              # depending on its parent section.
               cpu: "50m"
+              # CONFIGURATION EXPLANATION `64Mi` is a memory amount. Memory is not compressible like CPU: if a
+              # container exceeds its memory limit, Kubernetes may kill it, so
+              # production teams set this from observed usage plus headroom.
               memory: "64Mi"
+            # CONFIGURATION EXPLANATION Resource limits are the maximum CPU and memory this container is allowed
+            # to use. They protect the node and neighboring pods from one workload
+            # consuming everything, which is a core multi-tenant production safety
+            # rule.
             limits:
+              # CONFIGURATION EXPLANATION `150m` is a CPU amount; `100m` means one tenth of one CPU core.
+              # Requests reserve scheduling capacity, while limits cap usage, so the
+              # same-looking field can mean either baseline capacity or a hard ceiling
+              # depending on its parent section.
               cpu: "150m"
+              # CONFIGURATION EXPLANATION `128Mi` is a memory amount. Memory is not compressible like CPU: if a
+              # container exceeds its memory limit, Kubernetes may kill it, so
+              # production teams set this from observed usage plus headroom.
               memory: "128Mi"
 
 # =============================================================================

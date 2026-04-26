@@ -14,7 +14,15 @@ apiVersion: v1
 kind: ConfigMap
 
 metadata:
+  # CONFIGURATION EXPLANATION `inference-gateway-runtime-config` is the Kubernetes API name for this ConfigMap.
+  # Humans and automation use this name in kubectl commands, audit logs, and incident
+  # runbooks, so changing it must be deliberate and coordinated with scripts that
+  # reference it.
   name: inference-gateway-runtime-config
+  # CONFIGURATION EXPLANATION `applications` is the namespace where this object is stored. A namespace is a
+  # named boundary inside one cluster for permissions, quotas, network rules, and
+  # cleanup; putting this object in the wrong namespace makes selectors and scripts
+  # miss it.
   namespace: applications
   labels:
     app.kubernetes.io/name: inference-gateway
@@ -23,28 +31,47 @@ metadata:
   annotations:
     description: "Non-sensitive runtime config used to teach ConfigMap injection."
 
+# CONFIGURATION EXPLANATION `data` is where a ConfigMap stores plain-text configuration. These values are not
+# baked into the container image, so the same image can run in local, staging, or production with different
+# behavior chosen by Kubernetes configuration.
 data:
   # APP_ENV is non-sensitive. It tells the same container image whether it is
   # running as a local development, staging, or production instance.
+  # CONFIGURATION EXPLANATION `APP_ENV` tells the application which environment it is running in. Production
+  # teams use this kind of value to switch non-secret behavior, such as safer defaults in local development and
+  # stricter behavior in production.
   APP_ENV: "development"
 
   # LOG_LEVEL is safe in a ConfigMap because it does not grant access to systems.
   # In production, teams often raise or lower this during incident response.
+  # CONFIGURATION EXPLANATION `LOG_LEVEL` controls how much detail the application writes to logs. During an
+  # incident, operators may temporarily increase log detail for observability, then reduce it again to control
+  # noise and storage cost.
   LOG_LEVEL: "info"
 
   # LOCAL: The gateway should call the backend through the Service created in
   # setup/05-services, not through a pod IP from setup/04-deployments.
   # ENTERPRISE: This would often be an internal DNS name, service mesh hostname,
   # or platform service discovery name on EKS, GKE, or AKS.
+  # CONFIGURATION EXPLANATION `RISK_PROFILE_API_BASE_URL` points the gateway at the backend Service DNS name
+  # from setup/05-services. If this does not match the Service name, the gateway can start successfully but
+  # dependency calls will fail at runtime.
   RISK_PROFILE_API_BASE_URL: "http://risk-profile-api-clusterip/profile/rules"
 
   # Feature flags are configuration because they change behavior without
   # changing code. They are safe here only when they do not reveal secrets.
+  # CONFIGURATION EXPLANATION `FEATURE_FLAG_VERBOSE_DEPENDENCY_CHECK` is a feature flag: a runtime switch that
+  # changes behavior without rebuilding the image. Production teams use feature flags for controlled rollout,
+  # quick disablement, and safer experiments.
   FEATURE_FLAG_VERBOSE_DEPENDENCY_CHECK: "true"
 
   # Timeouts and retry counts belong outside the image because each environment
   # has different latency and reliability characteristics.
+  # CONFIGURATION EXPLANATION `BACKEND_TIMEOUT_MS` limits how long the gateway waits for the backend. Timeouts
+  # keep one slow dependency from tying up request workers forever, which protects availability under failure.
   BACKEND_TIMEOUT_MS: "3000"
+  # CONFIGURATION EXPLANATION `BACKEND_MAX_RETRIES` controls how many times the gateway retries a failed backend
+  # call. Retries can recover from brief network blips, but too many retries can amplify load during an outage.
   BACKEND_MAX_RETRIES: "2"
 
   # ConfigMaps can also carry whole files. The key becomes the filename when it

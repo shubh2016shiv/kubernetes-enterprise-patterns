@@ -29,6 +29,10 @@ set -o pipefail
 # CAN BE CHANGED: Must match CLUSTER_NAME in create-cluster_1.sh and the
 # name field in kind-cluster-config.yaml. Example: `ml-inference-dev`.
 # If changed, also update destroy-cluster_3.sh and kind-cluster-config.yaml.
+# CONFIGURATION EXPLANATION `local-enterprise-dev` is the kind cluster name. kind also creates the kubectl
+# context `kind-local-enterprise-dev`, so this value must match
+# kind-cluster-config.yaml or this script may verified a different local cluster than
+# the learner expects.
 CLUSTER_NAME="local-enterprise-dev"
 
 GREEN='\033[0;32m'

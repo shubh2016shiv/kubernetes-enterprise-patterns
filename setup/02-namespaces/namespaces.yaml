@@ -40,6 +40,9 @@ metadata:
   # CAN BE CHANGED: Example `ml-inference-workloads` or `api-services`.
   # If renamed, update kubectl describe commands in apply-namespaces_1.sh and any
   # other scripts that reference this namespace.
+  # CONFIGURATION EXPLANATION `applications` is the Kubernetes API name for this Namespace. Humans and
+  # automation use this name in kubectl commands, audit logs, and incident runbooks,
+  # so changing it must be deliberate and coordinated with scripts that reference it.
   name: applications
   # Labels on namespaces are used by:
   #   - NetworkPolicy selectors (allow traffic between labeled namespaces)
@@ -85,6 +88,9 @@ apiVersion: v1
 kind: Namespace
 metadata:
   # CAN BE CHANGED: Example `observability` or `logging`. Name describes the purpose.
+  # CONFIGURATION EXPLANATION `monitoring` is the Kubernetes API name for this Namespace. Humans and automation
+  # use this name in kubectl commands, audit logs, and incident runbooks, so changing
+  # it must be deliberate and coordinated with scripts that reference it.
   name: monitoring
   labels:
     environment: development
@@ -113,6 +119,9 @@ apiVersion: v1
 kind: Namespace
 metadata:
   # CAN BE CHANGED: Example `vault-system` or `policy-engine`. Used for organization.
+  # CONFIGURATION EXPLANATION `security` is the Kubernetes API name for this Namespace. Humans and automation
+  # use this name in kubectl commands, audit logs, and incident runbooks, so changing
+  # it must be deliberate and coordinated with scripts that reference it.
   name: security
   labels:
     environment: development
@@ -142,6 +151,9 @@ apiVersion: v1
 kind: Namespace
 metadata:
   # CAN BE CHANGED: Example `nginx-ingress` or `traefik-system`. Name reflects controller type.
+  # CONFIGURATION EXPLANATION `ingress-system` is the Kubernetes API name for this Namespace. Humans and
+  # automation use this name in kubectl commands, audit logs, and incident runbooks,
+  # so changing it must be deliberate and coordinated with scripts that reference it.
   name: ingress-system
   labels:
     environment: development
@@ -164,6 +176,9 @@ apiVersion: v1
 kind: Namespace
 metadata:
   # CAN BE CHANGED: Example `pre-production` or `canary`. Name reflects environment.
+  # CONFIGURATION EXPLANATION `staging` is the Kubernetes API name for this Namespace. Humans and automation use
+  # this name in kubectl commands, audit logs, and incident runbooks, so changing it
+  # must be deliberate and coordinated with scripts that reference it.
   name: staging
   labels:
     environment: staging

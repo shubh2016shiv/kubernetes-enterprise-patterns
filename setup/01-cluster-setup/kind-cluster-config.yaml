@@ -44,6 +44,10 @@ kind: Cluster
 #   - Docker container names: "local-enterprise-dev-control-plane"
 # CAN BE CHANGED: Example `ml-inference-dev`. If changed, must also update
 # CLUSTER_NAME in create-cluster_1.sh, verify-cluster_2.sh, and destroy-cluster_3.sh.
+# CONFIGURATION EXPLANATION `local-enterprise-dev` is the kind cluster name, and kind will also create a kubectl
+# context named `kind-local-enterprise-dev`. The Bash create, verify, and destroy
+# scripts must use the same value so they operate on this lab cluster instead of
+# another cluster on the machine.
 name: local-enterprise-dev
 
 # ─── NETWORKING ───────────────────────────────────────────────────────────────
@@ -54,11 +58,19 @@ networking:
   # apiServerAddress: The IP where the Kubernetes API server is reachable
   # from OUTSIDE the cluster. "127.0.0.1" = only accessible from localhost.
   # In production: This would be a private IP or a load balancer IP.
+  # CONFIGURATION EXPLANATION `apiServerAddress: 127.0.0.1` is part of the cluster networking contract. These
+  # values decide where the Kubernetes API listens and which IP ranges pods and
+  # Services receive; overlaps with corporate VPN or host networks can cause confusing
+  # routing failures.
   apiServerAddress: "127.0.0.1"
 
   # apiServerPort: The port for the Kubernetes API server.
   # 6443 is the standard HTTPS port for the K8s API — same in every cluster.
   # In enterprise: Firewall rules would restrict this to bastion hosts only.
+  # CONFIGURATION EXPLANATION `apiServerPort: 6443` is part of the cluster networking contract. These values
+  # decide where the Kubernetes API listens and which IP ranges pods and Services
+  # receive; overlaps with corporate VPN or host networks can cause confusing routing
+  # failures.
   apiServerPort: 6443
 
   # podSubnet: The IP range allocated for Pod IP addresses.
@@ -71,6 +83,10 @@ networking:
   # CAN BE CHANGED: Example `10.244.0.0/16`. If using Docker Desktop on WSL2,
   # ensure this does NOT overlap with your WSL2 network (check: `ip addr` in WSL2).
   # Change in consultation with your network team in enterprise.
+  # CONFIGURATION EXPLANATION `podSubnet: 10.100.0.0/16` is part of the cluster networking contract. These
+  # values decide where the Kubernetes API listens and which IP ranges pods and
+  # Services receive; overlaps with corporate VPN or host networks can cause confusing
+  # routing failures.
   podSubnet: "10.100.0.0/16"
 
   # serviceSubnet: The IP range for Service (ClusterIP) virtual IPs.
@@ -79,6 +95,10 @@ networking:
   # ENTERPRISE NOTE: This CIDR must never appear in your actual corporate network.
   # CAN BE CHANGED: Example `10.96.0.0/12` (Kubernetes default). Must NOT overlap
   # with podSubnet or your host network. Change only if required by your network policy.
+  # CONFIGURATION EXPLANATION `serviceSubnet: 10.200.0.0/16` is part of the cluster networking contract. These
+  # values decide where the Kubernetes API listens and which IP ranges pods and
+  # Services receive; overlaps with corporate VPN or host networks can cause confusing
+  # routing failures.
   serviceSubnet: "10.200.0.0/16"
 
 # ─── NODES ────────────────────────────────────────────────────────────────────
@@ -112,6 +132,10 @@ nodes:
   # Match this to what your production EKS/GKE/AKS cluster runs.
   # Check: https://endoflife.date/kubernetes for support timelines.
   - role: control-plane
+    # CONFIGURATION EXPLANATION This container image is the Kubernetes node used by kind. Pinning both the
+    # Kubernetes version and the SHA digest makes the local cluster reproducible,
+    # which mirrors production supply-chain control where teams need to know exactly
+    # what binary version ran.
     image: kindest/node:v1.30.6@sha256:b6d08db72079ba5ae1f4a88a09025c0a904af3b52387643c285442afb05ab994
     #                                  ↑ SHA256 hash pins the EXACT image layer
     #                                    This is CRITICAL in enterprise security.
@@ -132,15 +156,27 @@ nodes:
       # If changed, update any port-forward commands or test scripts that reference them.
       # containerPort (80, 443, 30000, 30001) should NOT change — these are K8s defaults.
       - containerPort: 80        # HTTP → Ingress Controller
+        # CONFIGURATION EXPLANATION `8080` maps traffic from the learner machine into the kind node container.
+        # This is a laptop substitute for production firewall and load-balancer rules,
+        # where platform teams decide which ports are allowed into the cluster.
         hostPort: 8080           # Access via http://localhost:8080 on your machine
         protocol: TCP
       - containerPort: 443       # HTTPS → Ingress Controller
+        # CONFIGURATION EXPLANATION `8443` maps traffic from the learner machine into the kind node container.
+        # This is a laptop substitute for production firewall and load-balancer rules,
+        # where platform teams decide which ports are allowed into the cluster.
         hostPort: 8443           # Access via https://localhost:8443
         protocol: TCP
       - containerPort: 30000     # NodePort range start
+        # CONFIGURATION EXPLANATION `30000` maps traffic from the learner machine into the kind node container.
+        # This is a laptop substitute for production firewall and load-balancer rules,
+        # where platform teams decide which ports are allowed into the cluster.
         hostPort: 30000          # Direct NodePort access from host
         protocol: TCP
       - containerPort: 30001     # Second NodePort (for additional services)
+        # CONFIGURATION EXPLANATION `30001` maps traffic from the learner machine into the kind node container.
+        # This is a laptop substitute for production firewall and load-balancer rules,
+        # where platform teams decide which ports are allowed into the cluster.
         hostPort: 30001
         protocol: TCP
 
@@ -152,6 +188,9 @@ nodes:
     # Here we add feature gates — runtime flags that enable beta/alpha features.
     # In enterprise, you track feature gate graduation to know when to adopt
     # features in production (alpha → beta → stable → deprecated).
+    # CONFIGURATION EXPLANATION The patch below adds node labels during cluster bootstrap. Labels are key-value
+    # facts attached to nodes; schedulers and ingress controllers use them later to
+    # decide where workloads are allowed to run.
     kubeadmConfigPatches:
     - |
       kind: InitConfiguration
@@ -173,7 +212,14 @@ nodes:
   # or Node Affinity to ensure pods land on appropriate worker nodes.
   # Control planes are "tainted" so no regular pods schedule on them.
   - role: worker
+    # CONFIGURATION EXPLANATION This container image is the Kubernetes node used by kind. Pinning both the
+    # Kubernetes version and the SHA digest makes the local cluster reproducible,
+    # which mirrors production supply-chain control where teams need to know exactly
+    # what binary version ran.
     image: kindest/node:v1.30.6@sha256:b6d08db72079ba5ae1f4a88a09025c0a904af3b52387643c285442afb05ab994
+    # CONFIGURATION EXPLANATION The patch below adds node labels during cluster bootstrap. Labels are key-value
+    # facts attached to nodes; schedulers and ingress controllers use them later to
+    # decide where workloads are allowed to run.
     kubeadmConfigPatches:
     - |
       kind: JoinConfiguration
@@ -191,7 +237,14 @@ nodes:
   #   - How a node failure (docker stop <container>) triggers pod rescheduling
   #   - How NodeAffinity and AntiAffinity rules work
   - role: worker
+    # CONFIGURATION EXPLANATION This container image is the Kubernetes node used by kind. Pinning both the
+    # Kubernetes version and the SHA digest makes the local cluster reproducible,
+    # which mirrors production supply-chain control where teams need to know exactly
+    # what binary version ran.
     image: kindest/node:v1.30.6@sha256:b6d08db72079ba5ae1f4a88a09025c0a904af3b52387643c285442afb05ab994
+    # CONFIGURATION EXPLANATION The patch below adds node labels during cluster bootstrap. Labels are key-value
+    # facts attached to nodes; schedulers and ingress controllers use them later to
+    # decide where workloads are allowed to run.
     kubeadmConfigPatches:
     - |
       kind: JoinConfiguration

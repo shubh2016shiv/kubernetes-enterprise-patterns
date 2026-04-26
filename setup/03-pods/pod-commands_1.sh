@@ -8,6 +8,10 @@ set -e
 set -u
 set -o pipefail
 
+# CONFIGURATION EXPLANATION The pod examples are created in `applications`, a namespace: a named area inside one
+# cluster. Keeping lab workloads here prevents commands from accidentally touching
+# Kubernetes system components, and production teams use the same boundary for team
+# ownership, permissions, resource budgets, and network rules.
 NAMESPACE="applications"
 SCRIPTS_DIR="$(dirname "$0")"
 
@@ -17,7 +21,7 @@ SCRIPTS_DIR="$(dirname "$0")"
 # │  Stage 1: Apply Pod Manifests                                            │
 # │      ├── 01-minimal-pod.yaml (Alpine debug container)                    │
 # │      ├── 02-pod-with-env.yaml (NGINX with Downward API config)           │
-# │      └── 03-multi-container-pod.yaml (NGINX + Fluentd sidecar)           │
+# │      └── 03-multi-container-pod.yaml (app + sidecar helper container)    │
 # │                                                                           │
 # │  Stage 2: Inspect Pod Status                                             │
 # │      ├── List pods in namespace                                          │
@@ -41,6 +45,10 @@ YELLOW='\033[1;33m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
+# A sidecar is a helper container that runs in the same Pod as the main app.
+# In this module, the main app writes log lines and the sidecar reads those
+# log lines from a shared volume. Both containers share the same Pod lifecycle.
+
 section() {
   echo ""
   echo "=== $1 ==="
@@ -57,6 +65,10 @@ run_cmd kubectl apply -f "${SCRIPTS_DIR}/01-minimal-pod.yaml"
 run_cmd kubectl apply -f "${SCRIPTS_DIR}/02-pod-with-env.yaml"
 run_cmd kubectl apply -f "${SCRIPTS_DIR}/03-multi-container-pod.yaml"
 
+# CONFIGURATION EXPLANATION The 60s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 kubectl wait --for=condition=Ready pod/platform-debug-toolbox -n "${NAMESPACE}" --timeout=60s || true
 kubectl wait --for=condition=Ready pod/inference-worker-config-demo -n "${NAMESPACE}" --timeout=90s || true
 kubectl wait --for=condition=Ready pod/inference-with-log-sidecar -n "${NAMESPACE}" --timeout=120s || true

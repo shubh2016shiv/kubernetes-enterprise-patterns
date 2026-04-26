@@ -36,10 +36,23 @@ set -euo pipefail
 #       -> Print the exact production commands to remember.
 # -----------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `applications` is the namespace that holds the two Deployments in this module. A
+# namespace is not a separate cluster; it is a boundary inside the cluster where
+# Kubernetes can apply permissions, quotas, and cleanup commands to one application
+# area.
 NAMESPACE="applications"
+# CONFIGURATION EXPLANATION `inference-gateway-deployment` is the Deployment name that kubectl will update, roll
+# back, or inspect. Keeping this explicit prevents the script from changing the
+# sibling Deployment when the lesson is about isolating rollout blast radius.
 GATEWAY_DEPLOYMENT="inference-gateway-deployment"
+# CONFIGURATION EXPLANATION `risk-profile-api-deployment` is the Deployment name that kubectl will update, roll
+# back, or inspect. Keeping this explicit prevents the script from changing the
+# sibling Deployment when the lesson is about isolating rollout blast radius.
 BACKEND_DEPLOYMENT="risk-profile-api-deployment"
 MANIFESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+# CONFIGURATION EXPLANATION This starts empty and is filled only if the demo marks a node unschedulable.
+# Tracking it lets the cleanup step restore the node, which models the production
+# habit of undoing temporary failure-drill changes.
 NODE_TO_UNCORDON=""
 
 cleanup() {
@@ -92,6 +105,10 @@ echo "Applying both Deployments so this drill starts from a known desired state.
 run_cmd kubectl apply -f "${MANIFESTS_DIR}/risk-profile-api-deployment.yaml" -n "${NAMESPACE}"
 run_cmd kubectl apply -f "${MANIFESTS_DIR}/inference-gateway-deployment.yaml" -n "${NAMESPACE}"
 
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${BACKEND_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 
@@ -124,6 +141,10 @@ echo "  and create a replacement pod."
 echo ""
 
 run_cmd kubectl delete pod "${POD_TO_DELETE}" -n "${NAMESPACE}"
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get pods -n "${NAMESPACE}" -l app=inference-gateway -o wide
 
@@ -139,6 +160,10 @@ echo "That causes the Deployment to create a new ReplicaSet revision without cha
 echo ""
 
 run_cmd kubectl rollout restart deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}"
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get replicasets -n "${NAMESPACE}" -l app=inference-gateway
 run_cmd kubectl get pods -n "${NAMESPACE}" -l app=inference-gateway -o wide
@@ -159,6 +184,9 @@ if [ "${SCHEDULABLE_NODE_COUNT}" -lt 2 ]; then
 else
   POD_TO_RESCHEDULE="$(first_backend_pod)"
   NODE_TO_CORDON="$(pod_node_name "${POD_TO_RESCHEDULE}")"
+  # CONFIGURATION EXPLANATION This starts empty and is filled only if the demo marks a node unschedulable.
+  # Tracking it lets the cleanup step restore the node, which models the production
+  # habit of undoing temporary failure-drill changes.
   NODE_TO_UNCORDON="${NODE_TO_CORDON}"
 
   echo "Selected pod: ${POD_TO_RESCHEDULE}"
@@ -172,11 +200,18 @@ else
 
   run_cmd kubectl cordon "${NODE_TO_CORDON}"
   run_cmd kubectl delete pod "${POD_TO_RESCHEDULE}" -n "${NAMESPACE}"
+  # CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+  # rollout or readiness wait by then, the learner gets a clear failure instead of an
+  # endless terminal. Production CI/CD pipelines use the same pattern to protect
+  # runner capacity and surface broken releases quickly.
   run_cmd kubectl rollout status deployment/"${BACKEND_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
   run_cmd kubectl get pods -n "${NAMESPACE}" -l app=risk-profile-api -o wide
 
   echo "Uncordoning the node so the lab cluster returns to normal."
   run_cmd kubectl uncordon "${NODE_TO_CORDON}"
+  # CONFIGURATION EXPLANATION This starts empty and is filled only if the demo marks a node unschedulable.
+  # Tracking it lets the cleanup step restore the node, which models the production
+  # habit of undoing temporary failure-drill changes.
   NODE_TO_UNCORDON=""
 fi
 
@@ -188,11 +223,19 @@ fi
 section "Stage 5.0: Scale Drill"
 
 run_cmd kubectl scale deployment/"${GATEWAY_DEPLOYMENT}" --replicas=5 -n "${NAMESPACE}"
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get deployment "${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}"
 run_cmd kubectl get pods -n "${NAMESPACE}" -l app=inference-gateway -o wide
 
 run_cmd kubectl scale deployment/"${GATEWAY_DEPLOYMENT}" --replicas=3 -n "${NAMESPACE}"
+# CONFIGURATION EXPLANATION The 180s timeout is a guardrail for automation: if Kubernetes cannot finish the
+# rollout or readiness wait by then, the learner gets a clear failure instead of an
+# endless terminal. Production CI/CD pipelines use the same pattern to protect runner
+# capacity and surface broken releases quickly.
 run_cmd kubectl rollout status deployment/"${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get deployment "${GATEWAY_DEPLOYMENT}" -n "${NAMESPACE}"
 
