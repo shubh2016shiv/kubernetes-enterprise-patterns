@@ -23,7 +23,11 @@ set -euo pipefail
 #   - Wait for completion and print logs.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION The backup CronJob and database credentials live in this namespace. A CronJob is a
+# scheduled Kubernetes Job; running it manually here should target the same namespace as the scheduled backup.
 NAMESPACE="patient-record-system"
+# CONFIGURATION EXPLANATION The timestamped Job name prevents manual backup runs from colliding. Production
+# backup systems use unique run IDs for the same reason: every backup attempt needs its own audit trail.
 JOB_NAME="manual-patient-db-backup-$(date +%Y%m%d%H%M%S)"
 
 section() {
@@ -66,9 +70,10 @@ run_cmd kubectl create job "${JOB_NAME}" \
 # ---------------------------------------------------------------------------
 section "Stage 3.0: Wait and Inspect"
 
+# CONFIGURATION EXPLANATION The 180s timeout keeps the backup drill bounded. If the backup cannot complete in a
+# reasonable window, the learner should inspect logs instead of assuming data protection is working.
 run_cmd kubectl wait --for=condition=complete "job/${JOB_NAME}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl logs "job/${JOB_NAME}" -n "${NAMESPACE}"
 
 echo "Restore pattern:"
 echo "  Use restore-database-backup.sh with the /backups/<file>.sql.gz path printed above."
-

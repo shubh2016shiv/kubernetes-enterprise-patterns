@@ -27,6 +27,9 @@ set -euo pipefail
 # and the namespace value in YAML files. Example: `patient-intake-system`.
 # If changed, update deploy-patient-record-system_3.sh, verify-patient-record-system_4.sh,
 # and all YAML manifests in kubernetes-manifests/.
+# CONFIGURATION EXPLANATION This is the namespace deletion target. Deleting a namespace removes the namespaced
+# objects inside it, including this lab's PersistentVolumeClaim. A PersistentVolumeClaim is the database's
+# request for durable disk, so this cleanup is intentionally destructive for local data.
 NAMESPACE="patient-record-system"
 
 section() {
@@ -72,4 +75,3 @@ run_cmd kubectl delete namespace "${NAMESPACE}" --ignore-not-found=true
 section "Stage 3.0: Show Remaining State"
 
 run_cmd kubectl get namespace "${NAMESPACE}" --ignore-not-found=true
-

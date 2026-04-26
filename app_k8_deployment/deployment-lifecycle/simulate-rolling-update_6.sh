@@ -26,8 +26,15 @@ set -euo pipefail
 #   - Show rollout history for rollback learning.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION This namespace tells kubectl which Deployment to modify. Namespaces are Kubernetes
+# boundaries for application ownership; a rollout command sent to the wrong namespace can update nothing or the
+# wrong copy of an app.
 NAMESPACE="patient-record-system"
+# CONFIGURATION EXPLANATION `1.0.1` is the default simulated release tag. A tag is the version label on a
+# container image; production teams normally use immutable tags tied to a Git commit so rollouts are traceable.
 TARGET_TAG="${1:-1.0.1}"
+# CONFIGURATION EXPLANATION The target image combines the repository name and release tag. This must already be
+# built and loaded into kind, or the new pods will not be able to start.
 TARGET_IMAGE="patient-record-api:${TARGET_TAG}"
 
 section() {
@@ -73,6 +80,8 @@ run_cmd kubectl set env deployment/patient-record-api \
 # ---------------------------------------------------------------------------
 section "Stage 3.0: Watch Rollout"
 
+# CONFIGURATION EXPLANATION The 180s timeout makes the rollout a clear pass/fail gate. If readiness never
+# succeeds, the script stops instead of hiding a failed release behind an endless wait.
 run_cmd kubectl rollout status deployment/patient-record-api -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get pods -n "${NAMESPACE}" -l app=patient-record-api -o wide
 
@@ -92,4 +101,3 @@ Next checks:
 Rollback if needed:
   bash app_k8_deployment/deployment-lifecycle/rollback-patient-record-api.sh
 TEXT
-

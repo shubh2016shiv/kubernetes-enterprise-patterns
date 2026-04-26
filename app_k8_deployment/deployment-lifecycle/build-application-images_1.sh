@@ -31,10 +31,15 @@ MODULE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # CAN BE CHANGED: Backend image name and tag. Example: `healthcare-api:2.0.0`.
 # If changed, update all references in load-images-into-kind_2.sh, deploy-patient-record-system_3.sh,
 # and 08-backend-deployment.yaml. Format: imagename:semver
+# CONFIGURATION EXPLANATION `patient-record-api:1.0.0` is the backend container image tag built from local source.
+# A container image is the packaged app plus its runtime libraries. In production, CI builds this from a clean
+# commit, scans it, and pushes an immutable tag so every rollout and rollback knows exactly which code ran.
 API_IMAGE="${API_IMAGE:-patient-record-api:1.0.0}"
 # CAN BE CHANGED: Frontend image name and tag. Example: `patient-ui:2.0.0`.
 # If changed, update load-images-into-kind_2.sh, deploy-patient-record-system_3.sh,
 # and 10-frontend-deployment.yaml. Format: imagename:semver
+# CONFIGURATION EXPLANATION `patient-intake-ui:1.0.0` is the frontend image tag. Keeping the UI image versioned
+# like the API image makes frontend releases auditable instead of treating static files as an informal side path.
 UI_IMAGE="${UI_IMAGE:-patient-intake-ui:1.0.0}"
 
 section() {

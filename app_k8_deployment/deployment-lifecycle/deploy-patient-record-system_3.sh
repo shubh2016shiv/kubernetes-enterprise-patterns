@@ -38,9 +38,15 @@ set -euo pipefail
 # CAN BE CHANGED: Namespace name. Example: `patient-intake-system` or `healthcare-api`.
 # If changed, must also update the namespace name in all YAML files in kubernetes-manifests/
 # and all NAMESPACE references in other scripts in this directory.
+# CONFIGURATION EXPLANATION `patient-record-system` is the namespace: a named boundary inside one Kubernetes
+# cluster. This lets the lab keep patient-record pods, Services, Secrets, quotas, and cleanup commands separate
+# from other workloads, which mirrors how enterprise teams separate applications and environments.
 NAMESPACE="patient-record-system"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODULE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# CONFIGURATION EXPLANATION `MANIFEST_DIR` points to the ordered Kubernetes YAML files. Keeping the path explicit
+# makes deployment repeatable: the script applies the same reviewed manifests every time instead of depending on
+# whichever directory the learner happens to run from.
 MANIFEST_DIR="${MODULE_DIR}/kubernetes-manifests"
 
 section() {
@@ -92,6 +98,9 @@ section "Stage 3.0: Deploy Database Tier"
 echo "ENTERPRISE EMPHASIS: The database uses StatefulSet + PVC because data must outlive pod restarts."
 apply_manifest "05-database-services.yaml"
 apply_manifest "06-database-statefulset.yaml"
+# CONFIGURATION EXPLANATION The 180s timeout prevents automation from waiting forever if the StatefulSet cannot
+# start the database pod or attach storage. A StatefulSet is the Kubernetes controller used here because the
+# database needs a stable pod name and durable disk, unlike a stateless API Deployment.
 run_cmd kubectl rollout status statefulset/patient-record-database -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get pvc -n "${NAMESPACE}"
 
@@ -105,6 +114,8 @@ section "Stage 4.0: Initialize Database Schema"
 echo "ENTERPRISE EMPHASIS: Schema initialization is a release step. The backend readiness probe also checks that the table exists."
 run_cmd kubectl delete job patient-record-schema-initializer -n "${NAMESPACE}" --ignore-not-found=true
 apply_manifest "07-database-schema-initialization-job.yaml"
+# CONFIGURATION EXPLANATION This wait treats schema creation as a release gate. A Job is a run-to-completion
+# workload; if it cannot create the table within 180 seconds, the backend should not be rolled out as healthy.
 run_cmd kubectl wait --for=condition=complete job/patient-record-schema-initializer -n "${NAMESPACE}" --timeout=180s
 
 # ---------------------------------------------------------------------------
@@ -117,6 +128,8 @@ section "Stage 5.0: Deploy Backend Tier"
 echo "ENTERPRISE EMPHASIS: Readiness gates API traffic until the pod can reach the database."
 apply_manifest "08-backend-deployment.yaml"
 apply_manifest "09-backend-service.yaml"
+# CONFIGURATION EXPLANATION This rollout wait lets readiness probes decide when the FastAPI pods are safe for
+# traffic. Production pipelines use the same idea so a release stops before users are routed to broken pods.
 run_cmd kubectl rollout status deployment/patient-record-api -n "${NAMESPACE}" --timeout=180s
 
 # ---------------------------------------------------------------------------
@@ -129,6 +142,8 @@ section "Stage 6.0: Deploy Frontend Tier"
 echo "ENTERPRISE EMPHASIS: Only the frontend gets external exposure in this lab. Backend and database stay private."
 apply_manifest "10-frontend-deployment.yaml"
 apply_manifest "11-frontend-service.yaml"
+# CONFIGURATION EXPLANATION The frontend rollout is also gated by readiness. That matters because the browser
+# entry point should not be advertised until nginx is actually serving the UI and proxying API traffic.
 run_cmd kubectl rollout status deployment/patient-intake-ui -n "${NAMESPACE}" --timeout=180s
 
 # ---------------------------------------------------------------------------

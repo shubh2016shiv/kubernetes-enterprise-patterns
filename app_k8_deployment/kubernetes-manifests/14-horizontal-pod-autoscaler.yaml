@@ -10,38 +10,51 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
+  # CONFIGURATION EXPLANATION A HorizontalPodAutoscaler, or HPA, changes the number of pod replicas based on a
+  # metric. This HPA scales the backend API for traffic pressure rather than changing image versions or code.
   name: patient-record-api-hpa
   namespace: patient-record-system
 spec:
   # ENTERPRISE EMPHASIS: HPA changes replica count, not image version. Rollout
   # and autoscaling are separate lifecycle concerns and should not be confused.
+  # CONFIGURATION EXPLANATION `scaleTargetRef` points the HPA at the Deployment it is allowed to resize. If this
+  # name does not match 08-backend-deployment.yaml, autoscaling will not affect the API pods.
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
     name: patient-record-api
-  minReplicas: 2
-  maxReplicas: 5
+  minReplicas: 2  # CONFIGURATION EXPLANATION The API keeps at least two pods so autoscaling never saves cost by reducing the service to a single point of failure.
+  maxReplicas: 5  # CONFIGURATION EXPLANATION Five pods cap local CPU and memory use; production caps are chosen from load tests, budgets, and downstream database capacity.
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
+          # CONFIGURATION EXPLANATION CPU utilization is measured against the Deployment's CPU requests, not node
+          # capacity. Seventy percent leaves headroom before latency rises while still avoiding unnecessary pods.
           averageUtilization: 70
   behavior:
     scaleUp:
+      # CONFIGURATION EXPLANATION A zero-second scale-up stabilization window lets the API add capacity quickly
+      # when CPU is high. Fast scale-up favors availability and latency during traffic spikes.
       stabilizationWindowSeconds: 0
       policies:
         - type: Pods
+          # CONFIGURATION EXPLANATION Adding one pod every 30 seconds keeps scale-up controlled for a laptop lab.
+          # Production may scale faster, but still considers image pull time, database load, and cost.
           value: 1
           periodSeconds: 30
     scaleDown:
       # ENTERPRISE EMPHASIS: Scale-down stabilization prevents replica flapping
       # after a short traffic dip. Stability is often more valuable than instantly
       # returning to the smallest possible replica count.
+      # CONFIGURATION EXPLANATION Five minutes of scale-down stabilization prevents rapid up/down oscillation.
+      # This protects user experience and downstream systems from constant pod churn.
       stabilizationWindowSeconds: 300
       policies:
         - type: Pods
+          # CONFIGURATION EXPLANATION Removing at most one pod per minute makes scale-down gradual, which is safer
+          # than dropping capacity immediately after one short quiet period.
           value: 1
           periodSeconds: 60
-

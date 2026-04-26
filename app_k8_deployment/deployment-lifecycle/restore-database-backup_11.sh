@@ -23,8 +23,14 @@ set -euo pipefail
 #   - Wait for completion and print restore logs.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION Restore runs in the same namespace as the database Service, credentials Secret, and
+# backup PersistentVolumeClaim. Keeping these together makes the local restore drill explicit and auditable.
 NAMESPACE="patient-record-system"
+# CONFIGURATION EXPLANATION The restore input must be an explicit backup file path. This avoids guessing which
+# backup to restore, which is dangerous in production because restoring the wrong file can overwrite valid data.
 BACKUP_FILE="${1:-}"
+# CONFIGURATION EXPLANATION The timestamped restore Job name creates a separate Kubernetes object for each
+# restore drill, preserving logs and Events for troubleshooting.
 JOB_NAME="manual-patient-db-restore-$(date +%Y%m%d%H%M%S)"
 
 section() {
@@ -131,6 +137,7 @@ YAML
 # ---------------------------------------------------------------------------
 section "Stage 3.0: Wait and Inspect"
 
+# CONFIGURATION EXPLANATION The 180s timeout turns restore into a clear operational gate. A restore that cannot
+# complete quickly enough needs investigation before anyone trusts the recovered database.
 run_cmd kubectl wait --for=condition=complete "job/${JOB_NAME}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl logs "job/${JOB_NAME}" -n "${NAMESPACE}"
-

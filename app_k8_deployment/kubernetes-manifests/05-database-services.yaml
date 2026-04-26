@@ -12,6 +12,9 @@
 apiVersion: v1
 kind: Service
 metadata:
+  # CONFIGURATION EXPLANATION This headless Service does not get a single virtual IP. Instead, it gives the
+  # StatefulSet stable DNS names for individual database pods, which matters for stateful systems where identity
+  # and storage must remain predictable.
   name: patient-record-database-headless
   namespace: patient-record-system
   labels:
@@ -22,18 +25,24 @@ spec:
   # identities like patient-record-database-0.patient-record-database-headless.
   # That identity matters for stateful systems where pod order and storage bind
   # to long-lived data.
+  # CONFIGURATION EXPLANATION `None` means "headless Service": Kubernetes creates DNS records without load
+  # balancing through one ClusterIP. The StatefulSet's `serviceName` must match this Service name.
   clusterIP: None
   selector:
     app: patient-record-database
     tier: database
   ports:
     - name: mysql
+      # CONFIGURATION EXPLANATION Port 3306 is the standard MySQL/MariaDB network port. It must match the
+      # database container's named `mysql` port so health checks, schema jobs, backups, and the API reach SQL.
       port: 3306
       targetPort: mysql
 ---
 apiVersion: v1
 kind: Service
 metadata:
+  # CONFIGURATION EXPLANATION This Service is the stable internal address the API uses for database traffic.
+  # Database pods can restart or move, but `patient-record-database-service` remains the name clients call.
   name: patient-record-database-service
   namespace: patient-record-system
   labels:
@@ -42,12 +51,15 @@ metadata:
 spec:
   # ENTERPRISE EMPHASIS: ClusterIP keeps the database private inside the cluster.
   # A database should not be exposed through NodePort or a public LoadBalancer.
+  # CONFIGURATION EXPLANATION ClusterIP means the database receives an internal-only virtual address. This is a
+  # security boundary: the browser and laptop should not connect directly to the database tier.
   type: ClusterIP
   selector:
     app: patient-record-database
     tier: database
   ports:
     - name: mysql
+      # CONFIGURATION EXPLANATION The Service port stays at 3306 so database clients use the expected SQL port,
+      # while `targetPort: mysql` links to the named container port in the StatefulSet.
       port: 3306
       targetPort: mysql
-

@@ -11,6 +11,9 @@
 apiVersion: v1
 kind: LimitRange
 metadata:
+  # CONFIGURATION EXPLANATION A LimitRange supplies default CPU and memory values when a pod author forgets to
+  # set them. That protects a shared cluster from "unbounded by accident" workloads while still letting this lab
+  # teach explicit resource settings on important pods.
   name: patient-record-default-container-limits
   namespace: patient-record-system
 spec:
@@ -19,9 +22,15 @@ spec:
       # ENTERPRISE EMPHASIS: Defaults protect the shared cluster if a team forgets
       # to set requests or limits. Real enterprises often reject pods missing
       # these fields through Kyverno, Gatekeeper, or built-in admission policy.
+      # CONFIGURATION EXPLANATION A request is the amount of CPU or memory Kubernetes reserves for scheduling.
+      # These small defaults fit a 16 GB laptop while teaching the production idea that every workload should
+      # declare its minimum capacity needs.
       defaultRequest:
         cpu: "100m"
         memory: "128Mi"
+      # CONFIGURATION EXPLANATION A limit is the maximum CPU or memory a container may consume. Defaults prevent
+      # forgotten limits from letting one noisy container exhaust the learner's local cluster or an enterprise
+      # shared node pool.
       default:
         cpu: "500m"
         memory: "512Mi"
@@ -29,6 +38,9 @@ spec:
 apiVersion: v1
 kind: ResourceQuota
 metadata:
+  # CONFIGURATION EXPLANATION A ResourceQuota is a namespace-wide budget. It limits the total CPU, memory, pods,
+  # Services, and storage claims this application can consume, which is how platform teams protect shared
+  # clusters from one project using all available capacity.
   name: patient-record-namespace-quota
   namespace: patient-record-system
 spec:
@@ -36,6 +48,9 @@ spec:
     # ENTERPRISE EMPHASIS: A 16 GB laptop cannot behave like a cloud node group.
     # This quota keeps the lab honest while teaching the same capacity contracts
     # used by platform teams in shared enterprise clusters.
+    # CONFIGURATION EXPLANATION These totals are intentionally modest for kind on a laptop. In production, quota
+    # numbers are negotiated from expected traffic, reliability needs, and cost limits instead of guessed later
+    # during an outage.
     requests.cpu: "2"
     requests.memory: "3Gi"
     limits.cpu: "4"
@@ -43,4 +58,3 @@ spec:
     pods: "20"
     services: "10"
     persistentvolumeclaims: "4"
-

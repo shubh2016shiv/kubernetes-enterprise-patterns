@@ -11,6 +11,8 @@
 apiVersion: v1
 kind: Service
 metadata:
+  # CONFIGURATION EXPLANATION This Service is the stable entry point for frontend pods. The NodePort value below
+  # maps it to the learner's browser while selectors route traffic to whichever UI pods are currently ready.
   name: patient-intake-ui-service
   namespace: patient-record-system
   labels:
@@ -20,12 +22,19 @@ spec:
   # ENTERPRISE EMPHASIS: NodePort is a local kind shortcut so the Windows/WSL2
   # learner can open http://localhost:30001. In enterprise, use Ingress/Gateway
   # with TLS, DNS, WAF, and managed load balancer health checks.
+  # CONFIGURATION EXPLANATION NodePort exposes the Service on a fixed port of each Kubernetes node. It is useful
+  # for kind on a laptop, while production normally uses an Ingress or Gateway with DNS, TLS certificates, and
+  # load-balancer health checks.
   type: NodePort
   selector:
     app: patient-intake-ui
     tier: frontend
   ports:
     - name: http
+      # CONFIGURATION EXPLANATION Service port 8080 is the in-cluster frontend port. It must match the Ingress
+      # backend port and route through `targetPort: http` to nginx's containerPort in 10-frontend-deployment.yaml.
       port: 8080
       targetPort: http
+      # CONFIGURATION EXPLANATION NodePort 30001 is the laptop-facing port used by verification scripts and the
+      # browser URL `http://localhost:30001`. If this changes, update the verify script BASE_URL and setup port mapping.
       nodePort: 30001

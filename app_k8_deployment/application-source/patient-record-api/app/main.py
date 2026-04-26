@@ -90,9 +90,19 @@ def create_application() -> FastAPI:
     )
     application.add_middleware(
         CORSMiddleware,
+        # CONFIGURATION EXPLANATION `allow_origins=["*"]` is acceptable for this local browser lab because the
+        # UI and API are intentionally simple. In production, CORS origins should be restricted to approved
+        # frontend domains so random websites cannot call the API from users' browsers.
         allow_origins=["*"],
+        # CONFIGURATION EXPLANATION `allow_credentials=False` means browsers will not send cookies or HTTP auth
+        # credentials through this CORS policy. That is safer for this unauthenticated lab API.
         allow_credentials=False,
+        # CONFIGURATION EXPLANATION Restricting methods to GET and POST documents the intended API surface:
+        # metadata/readiness reads and patient intake writes. Production teams review allowed methods as part of
+        # API security and change control.
         allow_methods=["GET", "POST"],
+        # CONFIGURATION EXPLANATION `allow_headers=["*"]` keeps local testing simple. In production, teams often
+        # narrow allowed headers to reduce unexpected client behavior and make API gateway policy easier to audit.
         allow_headers=["*"],
     )
 

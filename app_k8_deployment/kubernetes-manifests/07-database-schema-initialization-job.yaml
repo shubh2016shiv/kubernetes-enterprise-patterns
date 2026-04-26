@@ -12,13 +12,20 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
+  # CONFIGURATION EXPLANATION A Job creates one or more pods that run until a task completes. This Job owns the
+  # database schema creation step so table setup is visible in Kubernetes Events and logs instead of hidden inside
+  # normal API request handling.
   name: patient-record-schema-initializer
   namespace: patient-record-system
   labels:
     app: patient-record-schema-initializer
     tier: database
 spec:
+  # CONFIGURATION EXPLANATION `backoffLimit: 3` lets Kubernetes retry transient database startup timing failures,
+  # but still fails the release clearly if schema creation cannot succeed after a few attempts.
   backoffLimit: 3
+  # CONFIGURATION EXPLANATION Finished Jobs are kept for one hour so learners can inspect logs and status, then
+  # cleaned up to avoid old run objects cluttering the namespace.
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
@@ -26,16 +33,28 @@ spec:
         app: patient-record-schema-initializer
         tier: database
     spec:
+      # CONFIGURATION EXPLANATION The schema initializer has its own ServiceAccount so database setup work can be
+      # audited separately from the long-running API pods.
       serviceAccountName: patient-schema-initializer
+      # CONFIGURATION EXPLANATION `Never` means Kubernetes should not restart the same container inside the pod.
+      # Failed attempts are represented as new Job retries, which makes release failure history easier to inspect.
       restartPolicy: Never
       securityContext:
         seccompProfile:
+          # CONFIGURATION EXPLANATION RuntimeDefault applies the container runtime's normal Linux system-call filter
+          # to this migration-like pod, keeping even short-lived operational jobs under baseline security controls.
           type: RuntimeDefault
       containers:
         - name: schema-init
+          # CONFIGURATION EXPLANATION The Job uses the same MariaDB client image version as the database server.
+          # That avoids client/server compatibility surprises during schema initialization.
           image: mariadb:11.8.6
+          # CONFIGURATION EXPLANATION IfNotPresent works for the local lab and avoids repeated pulls. Production
+          # jobs should use pinned images from a trusted registry so migration tooling is reproducible.
           imagePullPolicy: IfNotPresent
           securityContext:
+            # CONFIGURATION EXPLANATION This one-shot job only needs to run the database client, so it blocks
+            # privilege escalation and drops Linux capabilities to reduce what a compromised job could do.
             allowPrivilegeEscalation: false
             capabilities:
               drop:
@@ -44,6 +63,8 @@ spec:
             - name: MARIADB_DATABASE
               valueFrom:
                 secretKeyRef:
+                  # CONFIGURATION EXPLANATION The schema job reads the database name, user, and password from the
+                  # same Secret as the API and database. That keeps the initialized schema aligned with the app.
                   name: patient-record-database-credentials
                   key: mysql-database
             - name: MARIADB_USER
@@ -57,6 +78,9 @@ spec:
                   name: patient-record-database-credentials
                   key: mysql-password
           command:
+            # CONFIGURATION EXPLANATION The command waits up to 30 attempts with 5 seconds between attempts before
+            # creating the table. This teaches a production release pattern: migration jobs should tolerate normal
+            # dependency startup delay but fail visibly when the dependency never becomes ready.
             - /bin/sh
             - -c
             - |
@@ -99,10 +123,12 @@ spec:
 
               echo "Schema initialization completed."
           resources:
+            # CONFIGURATION EXPLANATION Schema creation is short-lived and lightweight in this lab, so it receives
+            # small requests and limits. Production migrations may need separate sizing because large schema changes
+            # can consume meaningful database and client resources.
             requests:
               cpu: "50m"
               memory: "128Mi"
             limits:
               cpu: "250m"
               memory: "256Mi"
-

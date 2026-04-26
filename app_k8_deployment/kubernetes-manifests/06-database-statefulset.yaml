@@ -12,6 +12,8 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
+  # CONFIGURATION EXPLANATION A StatefulSet is the Kubernetes controller for pods that need stable names and
+  # stable storage. The database uses this instead of a Deployment because patient data must survive pod restarts.
   name: patient-record-database
   namespace: patient-record-system
   labels:
@@ -21,7 +23,12 @@ metadata:
     app.kubernetes.io/component: database
     app.kubernetes.io/part-of: patient-record-system
 spec:
+  # CONFIGURATION EXPLANATION `serviceName` must point to the headless Service in 05-database-services.yaml.
+  # Kubernetes uses that Service to create predictable DNS names for StatefulSet pods.
   serviceName: patient-record-database-headless
+  # CONFIGURATION EXPLANATION One database replica keeps the local lab small and avoids teaching unsafe multi-writer
+  # database clustering. Production availability is usually handled with a managed database or a database operator,
+  # not by blindly increasing this number.
   replicas: 1
   selector:
     matchLabels:
@@ -34,15 +41,25 @@ spec:
         tier: database
         app.kubernetes.io/name: patient-record-database
     spec:
+      # CONFIGURATION EXPLANATION This ServiceAccount is the database pod's Kubernetes identity. It is separate
+      # from the API identity so future permissions can be audited per tier.
       serviceAccountName: patient-record-database
+      # CONFIGURATION EXPLANATION `false` stops Kubernetes from mounting an API token into the database pod.
+      # The database does not need to call Kubernetes, so not mounting a token reduces what an attacker could steal.
       automountServiceAccountToken: false
       securityContext:
         # ENTERPRISE EMPHASIS: The database needs writable storage, but it still
         # gets the default runtime seccomp profile and a filesystem group for the
         # mounted PVC. Full database hardening is image- and operator-specific.
+        # CONFIGURATION EXPLANATION `fsGroup: 999` lets the MariaDB process write to the mounted database disk.
+        # A filesystem group is a Linux group applied to volume files so non-root processes can access storage.
         fsGroup: 999
         seccompProfile:
+          # CONFIGURATION EXPLANATION RuntimeDefault asks the container runtime to use its standard Linux system-call
+          # filtering profile. It is a baseline hardening setting that blocks many unusual kernel calls.
           type: RuntimeDefault
+      # CONFIGURATION EXPLANATION Sixty seconds gives MariaDB time to flush data and shut down cleanly before
+      # Kubernetes force-kills the container. Stateful workloads need more graceful shutdown time than tiny stateless apps.
       terminationGracePeriodSeconds: 60
       containers:
         - name: database
@@ -50,7 +67,12 @@ spec:
           # small, actively maintained official image. If strict Oracle MySQL is
           # required, replace this with a pinned mysql image and validate size,
           # support policy, and upgrade behavior before production use.
+          # CONFIGURATION EXPLANATION The pinned MariaDB image defines the exact database engine version for this
+          # lab. Pinning improves reproducibility and makes upgrade testing explicit instead of accidentally pulling
+          # a different database version later.
           image: mariadb:11.8.6
+          # CONFIGURATION EXPLANATION IfNotPresent fits kind because the image is pulled once and reused locally.
+          # Production clusters often pull from a registry with immutable tags and stronger image admission checks.
           imagePullPolicy: IfNotPresent
           securityContext:
             # LEARNER NOTE: This database image is different from the stateless
@@ -68,14 +90,21 @@ spec:
             # or a database operator that documents the exact securityContext it
             # supports. App containers can often drop all capabilities; database
             # images must be validated against their official startup behavior.
+            # CONFIGURATION EXPLANATION `allowPrivilegeEscalation: false` prevents the process from gaining more
+            # Linux privileges after it starts. This is basic container hardening even when the image still needs
+            # some startup permissions for database file ownership.
             allowPrivilegeEscalation: false
           ports:
             - name: mysql
+              # CONFIGURATION EXPLANATION The named container port is the database listener inside the pod. The
+              # Services use `targetPort: mysql`, so changing this name or number requires updating the Services too.
               containerPort: 3306
           env:
             - name: MARIADB_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
+                  # CONFIGURATION EXPLANATION These environment variables come from the credentials Secret rather
+                  # than plain YAML values. The Secret key names must match 02-database-secret.yaml exactly.
                   name: patient-record-database-credentials
                   key: mysql-root-password
             - name: MARIADB_DATABASE
@@ -95,10 +124,15 @@ spec:
                   key: mysql-password
           volumeMounts:
             - name: patient-record-database-data
+              # CONFIGURATION EXPLANATION `/var/lib/mysql` is where MariaDB stores database files. Mounting the
+              # PersistentVolumeClaim here is what lets patient records survive database pod replacement.
               mountPath: /var/lib/mysql
           resources:
             # ENTERPRISE EMPHASIS: Requests reserve capacity for the scheduler.
             # Limits keep a runaway database from exhausting the learner laptop.
+            # CONFIGURATION EXPLANATION These requests and limits reserve enough local CPU and memory for MariaDB
+            # while preventing it from consuming the whole kind cluster. Production sizing would come from load tests,
+            # query patterns, and storage performance requirements.
             requests:
               cpu: "250m"
               memory: "512Mi"
@@ -106,6 +140,8 @@ spec:
               cpu: "1000m"
               memory: "1Gi"
           startupProbe:
+            # CONFIGURATION EXPLANATION A startup probe protects slow database initialization. Kubernetes will not
+            # judge liveness or readiness until this command succeeds, so first boot and data-dir setup get time.
             exec:
               command:
                 - sh
@@ -114,6 +150,8 @@ spec:
             failureThreshold: 30
             periodSeconds: 5
           readinessProbe:
+            # CONFIGURATION EXPLANATION A readiness probe decides whether the pod should receive Service traffic.
+            # For a database, a successful ping means clients can start attempting SQL connections.
             exec:
               command:
                 - sh
@@ -124,6 +162,8 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           livenessProbe:
+            # CONFIGURATION EXPLANATION A liveness probe decides when Kubernetes should restart the container.
+            # The slower period and higher threshold avoid restarting the database for brief pauses.
             exec:
               command:
                 - sh
@@ -135,15 +175,21 @@ spec:
             failureThreshold: 6
   volumeClaimTemplates:
     - metadata:
+        # CONFIGURATION EXPLANATION This name becomes the PersistentVolumeClaim for the StatefulSet pod. A
+        # PersistentVolumeClaim is a request for durable disk storage, and the volumeMount above uses the same name.
         name: patient-record-database-data
       spec:
         # ENTERPRISE EMPHASIS: The PVC is the durability boundary. Deleting a pod
         # should not delete patient records. In production, this must be paired
         # with backups, encryption, restore drills, and upgrade runbooks.
+        # CONFIGURATION EXPLANATION ReadWriteOnce means one node can mount this disk for writing at a time. That
+        # matches this single database pod and avoids pretending the local disk is a safe shared database cluster.
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
+            # CONFIGURATION EXPLANATION 1Gi is intentionally small for the laptop lab but large enough to show the
+            # storage lifecycle. Production storage size is planned from retention, growth rate, backup time, and cost.
             storage: 1Gi
         # ENTERPRISE EMPHASIS: storageClassName is omitted so kind uses its
         # default local-path StorageClass. In AWS you would usually choose an

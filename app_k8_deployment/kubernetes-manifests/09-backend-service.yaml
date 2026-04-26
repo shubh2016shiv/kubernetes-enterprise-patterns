@@ -10,6 +10,8 @@
 apiVersion: v1
 kind: Service
 metadata:
+  # CONFIGURATION EXPLANATION This Service name becomes the backend DNS name used by nginx:
+  # `patient-record-api-service.patient-record-system.svc`. It must match nginx.conf so `/api/` traffic reaches the API.
   name: patient-record-api-service
   namespace: patient-record-system
   labels:
@@ -19,6 +21,8 @@ spec:
   # ENTERPRISE EMPHASIS: ClusterIP means only in-cluster callers such as nginx
   # can reach the backend. The backend is not directly exposed to the laptop or
   # internet; this is a basic enterprise blast-radius control.
+  # CONFIGURATION EXPLANATION ClusterIP creates a private in-cluster virtual address. The frontend can call the
+  # backend, but external users cannot bypass the UI and hit the API Service directly.
   type: ClusterIP
   selector:
     app: patient-record-api
@@ -28,6 +32,8 @@ spec:
       # LEARNER NOTE: Callers use patient-record-api-service:8080.
       # Kubernetes then finds pods matching the selector above and forwards the
       # request to their `targetPort`.
+      # CONFIGURATION EXPLANATION Port 8080 is what in-cluster clients call on the Service. It must match nginx
+      # proxy_pass and point through `targetPort: http` to the API container port in 08-backend-deployment.yaml.
       port: 8080
       # `http` points to the named container port in 08-backend-deployment.yaml.
       # This avoids repeating raw numbers everywhere and makes the connection

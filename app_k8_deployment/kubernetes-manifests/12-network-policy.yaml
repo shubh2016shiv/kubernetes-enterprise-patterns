@@ -13,19 +13,27 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  # CONFIGURATION EXPLANATION A NetworkPolicy is a Kubernetes network rule for pods. This first policy selects
+  # every pod in the namespace and denies traffic by default, so every allowed path must be declared below.
   name: default-deny-patient-record-system
   namespace: patient-record-system
 spec:
   # ENTERPRISE EMPHASIS: Start with no implicit trust. Every allowed path below
   # documents an intentional architecture edge.
+  # CONFIGURATION EXPLANATION `{}` means "all pods in this namespace." Starting with all pods blocked teaches
+  # the production security posture of default-deny networking instead of assuming every pod can talk to every pod.
   podSelector: {}
   policyTypes:
+    # CONFIGURATION EXPLANATION Ingress is traffic entering selected pods; Egress is traffic leaving selected pods.
+    # Listing both means the namespace starts closed in both directions until later policies open specific paths.
     - Ingress
     - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  # CONFIGURATION EXPLANATION DNS is the service that turns names like `patient-record-api-service` into IP
+  # addresses. Even locked-down pods need egress to cluster DNS or Service names will stop resolving.
   name: allow-dns-egress
   namespace: patient-record-system
 spec:
@@ -39,13 +47,18 @@ spec:
               kubernetes.io/metadata.name: kube-system
       ports:
         - protocol: UDP
+          # CONFIGURATION EXPLANATION Port 53 is the standard DNS port. UDP is the common fast path for DNS lookups.
           port: 53
         - protocol: TCP
+          # CONFIGURATION EXPLANATION TCP port 53 is kept because DNS can fall back to TCP for larger responses or
+          # reliability. Blocking it can create confusing intermittent name-resolution failures.
           port: 53
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  # CONFIGURATION EXPLANATION This policy opens inbound traffic only to frontend pods. It is the network-policy
+  # counterpart to the NodePort Service: users may reach the UI, but not the backend or database directly.
   name: allow-external-traffic-to-frontend
   namespace: patient-record-system
 spec:
@@ -58,11 +71,15 @@ spec:
   ingress:
     - ports:
         - protocol: TCP
+          # CONFIGURATION EXPLANATION Port 8080 is nginx inside the frontend pod. It must match the Deployment
+          # containerPort and Service targetPort or the policy would allow traffic to the wrong place.
           port: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  # CONFIGURATION EXPLANATION This policy permits only frontend pods to call backend pods. It expresses the
+  # application architecture in network rules: browser traffic enters the UI, then the UI talks to the API.
   name: allow-frontend-to-backend
   namespace: patient-record-system
 spec:
@@ -80,11 +97,15 @@ spec:
               tier: frontend
       ports:
         - protocol: TCP
+          # CONFIGURATION EXPLANATION Backend port 8080 is the FastAPI listener behind the backend Service. Allowing
+          # only this port reduces accidental exposure of any other process in the backend pod.
           port: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  # CONFIGURATION EXPLANATION This policy permits only backend pods to call database pods. The database should not
+  # accept traffic from the frontend or random workloads, because SQL access is the highest-risk path in this lab.
   name: allow-backend-to-database
   namespace: patient-record-system
 spec:
@@ -102,11 +123,15 @@ spec:
               tier: backend
       ports:
         - protocol: TCP
+          # CONFIGURATION EXPLANATION Port 3306 is the MariaDB SQL listener. Keeping this narrow makes the intended
+          # data path visible: API to database, not every pod to database.
           port: 3306
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  # CONFIGURATION EXPLANATION Egress rules control where selected pods may send traffic. This one lets the UI send
+  # API requests to backend pods and keeps other outbound paths closed after the default-deny policy.
   name: allow-frontend-egress-to-backend
   namespace: patient-record-system
 spec:
@@ -129,6 +154,8 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  # CONFIGURATION EXPLANATION This egress rule lets backend pods initiate SQL connections to the database pods.
+  # Without it, the API readiness check and patient-record writes would fail even if Services and credentials are correct.
   name: allow-backend-egress-to-database
   namespace: patient-record-system
 spec:

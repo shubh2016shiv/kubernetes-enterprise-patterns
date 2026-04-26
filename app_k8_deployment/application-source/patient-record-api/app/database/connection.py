@@ -48,14 +48,25 @@ class DatabaseConnectionFactory:
         """
 
         connection = pymysql.connect(
+            # CONFIGURATION EXPLANATION Host, port, database, user, and password are all read from validated
+            # Settings so the code uses the same values Kubernetes injected into the pod. This keeps database
+            # connectivity auditable instead of scattered through ad hoc environment lookups.
             host=self._settings.database_host,
             port=self._settings.database_port,
             user=self._settings.database_user,
             password=self._settings.database_password,
             database=self._settings.database_name,
+            # CONFIGURATION EXPLANATION `connect_timeout` turns database outage into a bounded failure. Readiness
+            # can then return unhealthy quickly, allowing Kubernetes to keep the pod out of Service traffic.
             connect_timeout=self._settings.database_connect_timeout_seconds,
+            # CONFIGURATION EXPLANATION DictCursor returns rows by column name, which makes repository code less
+            # fragile when query shape changes and easier for new developers to read.
             cursorclass=DictCursor,
+            # CONFIGURATION EXPLANATION `autocommit=False` means the application must explicitly commit writes.
+            # Production services prefer explicit transaction boundaries so failed operations can roll back cleanly.
             autocommit=False,
+            # CONFIGURATION EXPLANATION `utf8mb4` stores full Unicode, including names and notes that need more
+            # than older MySQL UTF-8. Healthcare systems should not silently corrupt patient-entered text.
             charset="utf8mb4",
         )
         try:

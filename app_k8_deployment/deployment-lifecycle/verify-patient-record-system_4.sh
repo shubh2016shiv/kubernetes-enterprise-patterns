@@ -31,11 +31,17 @@ set -euo pipefail
 
 # CAN BE CHANGED: Namespace name. Must match NAMESPACE in deploy-patient-record-system_3.sh
 # and the namespace value in all YAML files. Example: `patient-intake-system`.
+# CONFIGURATION EXPLANATION This namespace value tells every verification command where to look. A namespace is
+# a named boundary inside one cluster; if this does not match the manifests, the script may report missing pods
+# even though the app is running somewhere else.
 NAMESPACE="patient-record-system"
 # CAN BE CHANGED: Base URL for health checks and form submission tests.
 # If the NodePort or host port changes in kind-cluster-config.yaml, update this.
 # Example: http://localhost:8080 (if you remap port 30001 to 8080).
 # Override via environment: BASE_URL=http://localhost:8080 bash verify-patient-record-system_4.sh
+# CONFIGURATION EXPLANATION `http://localhost:30001` is the learner-facing URL created by the NodePort Service.
+# NodePort is a local exposure shortcut; enterprise systems usually verify through a real DNS name, TLS, and a
+# load balancer or ingress gateway.
 BASE_URL="${BASE_URL:-http://localhost:30001}"
 
 section() {

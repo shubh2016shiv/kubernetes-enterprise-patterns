@@ -26,6 +26,9 @@ set -euo pipefail
 #   - Show namespace Events ordered by time.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `patient-record-system` scopes the observation commands to this application. In
+# production, responders start by narrowing logs, Events, and metrics to the owning namespace so they do not mix
+# signals from unrelated applications.
 NAMESPACE="patient-record-system"
 
 section() {

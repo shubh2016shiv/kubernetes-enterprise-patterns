@@ -23,6 +23,8 @@ set -euo pipefail
 #   - Wait for rollout and show pod state.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION Rollback is scoped to `patient-record-system` so only this app's backend Deployment
+# is changed. Namespace scoping is a production blast-radius control for operational commands.
 NAMESPACE="patient-record-system"
 
 section() {
@@ -63,10 +65,12 @@ run_cmd kubectl rollout undo deployment/patient-record-api -n "${NAMESPACE}"
 # ---------------------------------------------------------------------------
 section "Stage 3.0: Verify Rollback"
 
+# CONFIGURATION EXPLANATION The 180s timeout confirms the restored ReplicaSet becomes ready. A ReplicaSet is the
+# Deployment-owned object that keeps a specific pod template running, so rollback is not complete until those
+# restored pods pass readiness.
 run_cmd kubectl rollout status deployment/patient-record-api -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get pods -n "${NAMESPACE}" -l app=patient-record-api -o wide
 run_cmd kubectl rollout history deployment/patient-record-api -n "${NAMESPACE}"
 
 echo "Run final verification:"
 echo "  bash app_k8_deployment/deployment-lifecycle/verify-patient-record-system.sh"
-

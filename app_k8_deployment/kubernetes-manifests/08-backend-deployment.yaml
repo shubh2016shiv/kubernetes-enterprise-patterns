@@ -15,8 +15,12 @@ metadata:
   # CAN BE CHANGED: Deployment name and Service selector.
   # Example: `healthcare-api-backend`. If changed, update 09-backend-service.yaml
   # and the API_IMAGE in build-application-images_1.sh must reference this.
+  # CONFIGURATION EXPLANATION A Deployment is the Kubernetes controller for stateless replicated pods. This name
+  # must match rollout, rollback, HPA, PDB, and Service references so every operational command targets the same API.
   name: patient-record-api
   # CAN BE CHANGED: Must match namespace in 00-namespace.yaml and NAMESPACE in scripts.
+  # CONFIGURATION EXPLANATION The backend lives in the same namespace as its ConfigMap, Secret, Service, and
+  # database dependency. Namespace alignment is what lets simple names resolve and keeps permissions scoped.
   namespace: patient-record-system
   labels:
     app: patient-record-api
@@ -30,7 +34,11 @@ spec:
   # a stateless API. Real production often starts at three or more to survive
   # node drains and availability-zone failures.
   # CAN BE CHANGED: Example `1` for single-replica testing or `3` for production pattern.
+  # CONFIGURATION EXPLANATION Two API pods let a rolling update replace one pod while another can still serve
+  # requests. A single replica is cheaper, but one restart would make the API unavailable.
   replicas: 2
+  # CONFIGURATION EXPLANATION Keeping five old ReplicaSet revisions gives rollback history without storing too
+  # many stale pod templates. A ReplicaSet is the Deployment-owned record of one specific pod template version.
   revisionHistoryLimit: 5
   selector:
     matchLabels:
@@ -42,7 +50,11 @@ spec:
       # ENTERPRISE EMPHASIS: `maxUnavailable: 0` prevents Kubernetes from taking
       # down an old ready pod until a new pod is ready. This protects users during
       # rolling updates at the cost of needing temporary extra capacity.
+      # CONFIGURATION EXPLANATION `maxUnavailable: 0` means Kubernetes must keep all currently ready API capacity
+      # serving until replacement pods pass readiness. This favors availability over the smallest possible rollout.
       maxUnavailable: 0
+      # CONFIGURATION EXPLANATION `maxSurge: 1` permits one temporary extra API pod during rollout. That extra
+      # capacity is the tradeoff that lets the update stay available while new pods start.
       maxSurge: 1
   template:
     metadata:
@@ -52,18 +64,28 @@ spec:
         app.kubernetes.io/name: patient-record-api
         app.kubernetes.io/version: "1.0.0"
     spec:
+      # CONFIGURATION EXPLANATION This ServiceAccount is the backend pod's Kubernetes identity. It is separate
+      # from human users and separate from other tiers so permission rules can be reviewed per workload.
       serviceAccountName: patient-record-api
+      # CONFIGURATION EXPLANATION `false` means the backend does not automatically receive a Kubernetes API token.
+      # Because this app reads config from environment variables, not live API calls, omitting the token reduces risk.
       automountServiceAccountToken: false
       securityContext:
         # ENTERPRISE EMPHASIS: Stateless application pods should run as non-root
         # with a runtime default seccomp profile. The image creates UID 10001.
+        # CONFIGURATION EXPLANATION These values force the API process to run as the non-root Linux user created
+        # in the Dockerfile. This is a production container hardening baseline for application workloads.
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
         seccompProfile:
+          # CONFIGURATION EXPLANATION RuntimeDefault applies the container runtime's standard system-call filter,
+          # reducing kernel attack surface without requiring custom security profiles for the lab.
           type: RuntimeDefault
       topologySpreadConstraints:
         - maxSkew: 1
+          # CONFIGURATION EXPLANATION Topology spread asks Kubernetes to avoid placing all API pods on one node.
+          # `kubernetes.io/hostname` means "spread across worker nodes when possible" for better failure tolerance.
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
@@ -75,6 +97,9 @@ spec:
           # node, but do not block the lab forever if the local cluster has too
           # little capacity. Production may use required rules when capacity is
           # guaranteed by node groups and autoscaling.
+          # CONFIGURATION EXPLANATION Pod anti-affinity is a scheduling preference that keeps different tiers away
+          # from each other when possible. Here the API prefers not to share a node with the database, reducing the
+          # chance one node's pressure hurts both compute and data tiers.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               podAffinityTerm:
@@ -89,14 +114,21 @@ spec:
           # such as registry.example.com/healthcare/patient-record-api:git-sha.
           # CAN BE CHANGED: Backend image and tag. Example: `healthcare-api:2.0.0`.
           # Must match API_IMAGE in build-application-images_1.sh and load-images-into-kind_2.sh.
+          # CONFIGURATION EXPLANATION This image tag must be built by build-application-images_1.sh and loaded into
+          # kind by load-images-into-kind_2.sh. In production it would point to a scanned immutable registry artifact.
           image: patient-record-api:1.0.0
           # CAN BE CHANGED: Use `Always` if pulling from a remote registry, `IfNotPresent`
           # for local kind images. Local development uses IfNotPresent.
+          # CONFIGURATION EXPLANATION IfNotPresent tells the node to reuse a local image if it exists. That matches
+          # kind image loading; production registry workflows often use immutable tags plus admission controls.
           imagePullPolicy: IfNotPresent
           securityContext:
             # ENTERPRISE EMPHASIS: Drop Linux capabilities and make the root
             # filesystem read-only. If the app needs scratch space, mount an
             # explicit emptyDir so write locations are reviewable.
+            # CONFIGURATION EXPLANATION These security settings prevent privilege escalation, make the image
+            # filesystem read-only, and drop extra Linux capabilities. The app only gets the explicit `/tmp` volume
+            # below for writable scratch space.
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
@@ -112,6 +144,8 @@ spec:
               # connect. FastAPI does not know about the Service directly.
               # Kubernetes knows this pod has an HTTP listener on port 8080, and
               # the Service routes traffic to this named port.
+              # CONFIGURATION EXPLANATION Port 8080 must match the Dockerfile Uvicorn command and the backend
+              # Service targetPort. If any of those disagree, Kubernetes can send traffic to a closed port.
               containerPort: 8080
           envFrom:
             - configMapRef:
@@ -119,11 +153,15 @@ spec:
                 # The FastAPI code reads environment variables through
                 # app/core/config.py. Kubernetes supplies non-secret values from
                 # this ConfigMap at pod startup.
+                # CONFIGURATION EXPLANATION The ConfigMap injects non-secret runtime settings like database host,
+                # app environment, log level, and version. Keeping these outside the image makes promotion repeatable.
                 name: patient-record-api-runtime-config
           env:
             - name: DATABASE_NAME
               valueFrom:
                 secretKeyRef:
+                  # CONFIGURATION EXPLANATION Database name, username, and password come from the Secret. The
+                  # Secret key names must match 02-database-secret.yaml so the API connects to the initialized schema.
                   name: patient-record-database-credentials
                   key: mysql-database
             - name: DATABASE_USER
@@ -139,6 +177,9 @@ spec:
             - name: POD_NAME
               valueFrom:
                 fieldRef:
+                  # CONFIGURATION EXPLANATION These values use the Downward API, which exposes selected Kubernetes
+                  # pod metadata as environment variables. They make logs and responses traceable to the exact pod,
+                  # namespace, and node involved in a request.
                   fieldPath: metadata.name
             - name: POD_NAMESPACE
               valueFrom:
@@ -152,6 +193,8 @@ spec:
             # ENTERPRISE EMPHASIS: HPA CPU percentages are calculated against
             # requests, not limits. Missing CPU requests make autoscaling weak or
             # impossible to reason about.
+            # CONFIGURATION EXPLANATION Requests reserve capacity for scheduling and form the baseline for HPA CPU
+            # percentages. Limits cap runaway usage so the backend cannot starve the database or frontend on a laptop.
             requests:
               cpu: "100m"
               memory: "192Mi"
@@ -159,6 +202,8 @@ spec:
               cpu: "500m"
               memory: "512Mi"
           startupProbe:
+            # CONFIGURATION EXPLANATION A startup probe gives the API time to import code and initialize before
+            # Kubernetes starts judging liveness. This avoids killing a slow-starting pod during normal startup.
             httpGet:
               path: /livez
               port: http
@@ -168,6 +213,8 @@ spec:
             # ENTERPRISE EMPHASIS: Readiness checks the database dependency.
             # During rollout, Kubernetes keeps this pod out of Service endpoints
             # until it can actually serve patient-write traffic.
+            # CONFIGURATION EXPLANATION Readiness controls whether the Service sends traffic to this pod. `/readyz`
+            # checks database reachability and schema presence, so users are not routed to an API that is alive but unusable.
             httpGet:
               path: /readyz
               port: http
@@ -179,6 +226,8 @@ spec:
             # ENTERPRISE EMPHASIS: Liveness only checks the app process. If the
             # database is down, restarting every API pod usually makes recovery
             # worse. Readiness, not liveness, should block traffic.
+            # CONFIGURATION EXPLANATION Liveness answers "should Kubernetes restart this container?" It uses `/livez`
+            # instead of the database-dependent readiness endpoint to avoid restart loops during database outages.
             httpGet:
               path: /livez
               port: http
@@ -188,7 +237,11 @@ spec:
             failureThreshold: 3
           volumeMounts:
             - name: api-tmp
+              # CONFIGURATION EXPLANATION The root filesystem is read-only, so `/tmp` is the explicit writable
+              # scratch location. Making write paths explicit helps security reviews and incident investigation.
               mountPath: /tmp
       volumes:
         - name: api-tmp
+          # CONFIGURATION EXPLANATION emptyDir is temporary storage tied to the pod lifetime. It is safe for scratch
+          # files but not for patient records because it disappears when the pod is deleted.
           emptyDir: {}

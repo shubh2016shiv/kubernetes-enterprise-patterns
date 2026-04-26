@@ -29,9 +29,17 @@ set -euo pipefail
 #   - Wait for readiness-gated rollout completion.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `api` chooses which tier to rebuild by default. The script accepts only `api` or
+# `ui` so a learner does not accidentally restart an unrelated Deployment while practicing image promotion.
 TARGET_COMPONENT="${1:-api}"
+# CONFIGURATION EXPLANATION `1.0.0` is the local same-tag rebuild default. Same-tag rebuilds are convenient in a
+# lab, but production pipelines prefer new immutable tags so every image digest is auditable.
 TARGET_TAG="${2:-1.0.0}"
+# CONFIGURATION EXPLANATION This kind cluster name controls where the rebuilt image is loaded. It must match the
+# cluster created in setup/01-cluster-setup, otherwise the Deployment can still use the old image bytes.
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-local-enterprise-dev}"
+# CONFIGURATION EXPLANATION This namespace scopes the Deployment restart. Restarting by namespace prevents the
+# command from touching another application with a similar Deployment name.
 NAMESPACE="patient-record-system"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODULE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -116,6 +124,7 @@ run_cmd kubectl rollout restart "deployment/${DEPLOYMENT_NAME}" -n "${NAMESPACE}
 # ---------------------------------------------------------------------------
 section "Stage 5.0: Verify Rollout"
 
+# CONFIGURATION EXPLANATION The 180s timeout is the deployment safety gate: Kubernetes must replace pods and
+# pass readiness checks in that window, or the script reports the same-tag rebuild as unhealthy.
 run_cmd kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "${NAMESPACE}" --timeout=180s
 run_cmd kubectl get pods -n "${NAMESPACE}" -l "app=${DEPLOYMENT_NAME}" -o wide
-

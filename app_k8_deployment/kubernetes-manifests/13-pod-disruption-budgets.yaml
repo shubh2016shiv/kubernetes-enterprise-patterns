@@ -10,11 +10,15 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
+  # CONFIGURATION EXPLANATION A PodDisruptionBudget, often shortened to PDB, tells Kubernetes how many pods must
+  # stay available during voluntary maintenance such as node drains. This one protects the backend API.
   name: patient-record-api-pdb
   namespace: patient-record-system
 spec:
   # ENTERPRISE EMPHASIS: Keep at least one backend pod available during voluntary
   # maintenance. With only two local replicas, this allows one eviction at a time.
+  # CONFIGURATION EXPLANATION `minAvailable: 1` means Kubernetes should not voluntarily evict both backend pods at
+  # once. It does not stop crashes, but it makes planned maintenance safer for a two-replica local API.
   minAvailable: 1
   selector:
     matchLabels:
@@ -24,12 +28,15 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
+  # CONFIGURATION EXPLANATION This PDB protects the frontend UI during voluntary maintenance. The matching labels
+  # must stay aligned with 10-frontend-deployment.yaml or the budget will protect no pods.
   name: patient-intake-ui-pdb
   namespace: patient-record-system
 spec:
+  # CONFIGURATION EXPLANATION Keeping at least one UI pod available means a node drain should not intentionally
+  # remove every browser entry point at the same time.
   minAvailable: 1
   selector:
     matchLabels:
       app: patient-intake-ui
       tier: frontend
-

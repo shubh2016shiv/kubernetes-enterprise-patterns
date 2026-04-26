@@ -29,6 +29,9 @@ set -euo pipefail
 #   - Wait for readiness-gated rollout completion.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION This namespace contains both the Kubernetes Secret and the database pod. The Secret
+# stores the password value for new API pods, while the database pod owns the actual database user password; both
+# must be updated together during rotation.
 NAMESPACE="patient-record-system"
 
 section() {
@@ -64,8 +67,14 @@ fi
 
 run_cmd kubectl get pod patient-record-database-0 -n "${NAMESPACE}"
 
+# CONFIGURATION EXPLANATION The database name is read from the existing Secret so rotation updates credentials
+# without accidentally changing which schema the application uses.
 DATABASE_NAME="$(kubectl get secret patient-record-database-credentials -n "${NAMESPACE}" -o jsonpath='{.data.mysql-database}' | base64 -d)"
+# CONFIGURATION EXPLANATION The database username is read from the Secret to keep the MariaDB user and Kubernetes
+# configuration aligned. The script must rotate the password for the same user the API uses.
 DATABASE_USER="$(kubectl get secret patient-record-database-credentials -n "${NAMESPACE}" -o jsonpath='{.data.mysql-user}' | base64 -d)"
+# CONFIGURATION EXPLANATION The current password is decoded only for the MariaDB command and is never printed.
+# That models production handling: secrets may be used by automation, but they should not appear in logs.
 CURRENT_PASSWORD="$(kubectl get secret patient-record-database-credentials -n "${NAMESPACE}" -o jsonpath='{.data.mysql-password}' | base64 -d)"
 
 # ---------------------------------------------------------------------------
@@ -120,6 +129,8 @@ run_cmd kubectl rollout restart deployment/patient-record-api -n "${NAMESPACE}"
 # ---------------------------------------------------------------------------
 section "Stage 5.0: Verify Readiness"
 
+# CONFIGURATION EXPLANATION The 180s timeout proves that restarted API pods can authenticate with the rotated
+# password. If readiness fails, traffic should remain blocked instead of serving broken database calls.
 run_cmd kubectl rollout status deployment/patient-record-api -n "${NAMESPACE}" --timeout=180s
 echo "Run full verification:"
 echo "  bash app_k8_deployment/deployment-lifecycle/verify-patient-record-system.sh"

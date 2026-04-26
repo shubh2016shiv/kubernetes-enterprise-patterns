@@ -9,9 +9,15 @@
 
 # ENTERPRISE EMPHASIS: Pin nginx instead of using `latest`. Frontend images are
 # still production artifacts and must be scanned, versioned, and promoted.
+# CONFIGURATION EXPLANATION `nginx:1.27.3-alpine` is the web-server base image. Pinning nginx gives the UI a
+# repeatable runtime and lets production security teams track exactly which web server version is deployed.
 FROM nginx:1.27.3-alpine
 
+# CONFIGURATION EXPLANATION The NGINX config controls the container listener port and `/api/` proxy target. It
+# must stay aligned with Kubernetes Service ports and the backend Service DNS name.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# CONFIGURATION EXPLANATION `index.html` is copied into nginx's static web root so the same image can serve the
+# browser UI without requiring a separate web server process.
 COPY index.html /usr/share/nginx/html/index.html
 
 # EXPOSE: Document which port this container is expected to serve.
@@ -25,4 +31,6 @@ COPY index.html /usr/share/nginx/html/index.html
 # may still run, but the image becomes misleading and future Kubernetes manifests
 # may point to the wrong port. In enterprise teams, these values are kept aligned
 # so Dockerfiles, runtime configs, and Kubernetes manifests tell the same story.
+# CONFIGURATION EXPLANATION `EXPOSE 8080` documents the frontend container port. It must match `listen 8080` in
+# nginx.conf, `containerPort: 8080` in the Deployment, and the Service targetPort.
 EXPOSE 8080

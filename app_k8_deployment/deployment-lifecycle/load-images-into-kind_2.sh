@@ -26,8 +26,16 @@ set -euo pipefail
 #   - Translate local image loading to registry-based promotion.
 # ---------------------------------------------------------------------------
 
+# CONFIGURATION EXPLANATION `local-enterprise-dev` is the kind cluster that receives locally built images.
+# kind does not pull from an enterprise registry by default, so the script must name the exact local cluster
+# whose nodes should receive the image copies.
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-local-enterprise-dev}"
+# CONFIGURATION EXPLANATION This backend image tag must match `08-backend-deployment.yaml`. If Kubernetes asks
+# for a different tag than the one loaded into kind, the pod can fail with ImagePullBackOff even though the build
+# succeeded locally.
 API_IMAGE="${API_IMAGE:-patient-record-api:1.0.0}"
+# CONFIGURATION EXPLANATION This frontend image tag must match `10-frontend-deployment.yaml`. The local learning
+# shortcut is `kind load docker-image`; production clusters instead pull this tag from a secured registry.
 UI_IMAGE="${UI_IMAGE:-patient-intake-ui:1.0.0}"
 
 section() {

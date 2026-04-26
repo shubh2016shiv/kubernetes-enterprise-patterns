@@ -11,6 +11,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  # CONFIGURATION EXPLANATION An Ingress is a Kubernetes HTTP routing object. It does not route traffic by itself;
+  # an ingress controller must watch it and configure a proxy or cloud load balancer from these rules.
   name: patient-intake-ingress
   namespace: patient-record-system
   annotations:
@@ -18,24 +20,40 @@ metadata:
     # DNS hostnames, TLS termination, WAF attachment, request routing, and
     # load-balancer health checks. This object can exist in kind, but it only
     # routes traffic when an ingress controller is installed.
+    # CONFIGURATION EXPLANATION This nginx annotation sets the upstream read timeout to 30 seconds. Timeouts keep
+    # broken backend calls from tying up proxy workers forever and are part of production failure control.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
 spec:
+  # CONFIGURATION EXPLANATION `nginx` tells Kubernetes which ingress controller should implement this rule. If the
+  # cluster has no nginx ingress controller, the object can exist but no traffic will be routed.
   ingressClassName: nginx
   tls:
     - hosts:
+        # CONFIGURATION EXPLANATION The host is the browser-facing DNS name for this route. Local labs use a fake
+        # example name; production would use an approved domain managed through DNS and certificate automation.
         - patient-intake.local.example
       # ENTERPRISE EMPHASIS: This secret is intentionally not created in the
       # local lab. In production, cert-manager, ACM, Google Managed Certificates,
       # Azure Key Vault, or a platform PKI process would provision the TLS cert.
+      # CONFIGURATION EXPLANATION This Secret name is where the TLS certificate would live. TLS means HTTPS
+      # encryption between browser and entry point; the Secret is intentionally absent unless a certificate process creates it.
       secretName: patient-intake-tls-certificate
   rules:
+    # CONFIGURATION EXPLANATION The rule host must match the TLS host above so HTTPS traffic and routing agree on
+    # the same DNS name.
     - host: patient-intake.local.example
       http:
         paths:
+          # CONFIGURATION EXPLANATION `/` with Prefix means all UI paths route to the frontend Service. This matches
+          # the single-page application fallback in nginx.conf.
           - path: /
             pathType: Prefix
             backend:
               service:
+                # CONFIGURATION EXPLANATION The backend here is the frontend Kubernetes Service, not the API. The
+                # UI Service then reaches nginx pods, and nginx proxies `/api/` calls to the backend API Service.
                 name: patient-intake-ui-service
                 port:
+                  # CONFIGURATION EXPLANATION Port 8080 must match 11-frontend-service.yaml. Ingress forwards to
+                  # the Service port, and the Service forwards to nginx's named container port.
                   number: 8080

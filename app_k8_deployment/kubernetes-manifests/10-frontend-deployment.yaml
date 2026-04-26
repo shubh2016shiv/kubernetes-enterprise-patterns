@@ -13,8 +13,12 @@ kind: Deployment
 metadata:
   # CAN BE CHANGED: Deployment and Service selector name. Example: `patient-portal-ui`.
   # If changed, update 11-frontend-service.yaml and UI_IMAGE in build-application-images_1.sh.
+  # CONFIGURATION EXPLANATION This Deployment runs the nginx UI pods. Its name must stay aligned with rollout
+  # scripts, the frontend Service selector, the PodDisruptionBudget, and the availability patterns taught here.
   name: patient-intake-ui
   # CAN BE CHANGED: Must match namespace in 00-namespace.yaml and NAMESPACE in scripts.
+  # CONFIGURATION EXPLANATION The frontend is in the same namespace as the backend Service it calls. That lets
+  # nginx use the short backend Service DNS name and keeps frontend permissions scoped to this application.
   namespace: patient-record-system
   labels:
     app: patient-intake-ui
@@ -26,9 +30,13 @@ metadata:
 spec:
   # CAN BE CHANGED: Example `1` for testing or `3` for production HA.
   # Replica count affects resource usage and availability during updates.
+  # CONFIGURATION EXPLANATION Two frontend pods let Kubernetes replace one nginx pod while another remains ready
+  # to serve the browser UI. This is the smallest useful availability pattern for a stateless frontend.
   replicas: 2
   # CAN BE CHANGED: Number of prior ReplicaSet revisions to keep for rollback.
   # Example: `3` for quick rollback, `10` for extended rollback history.
+  # CONFIGURATION EXPLANATION Five revision records preserve enough rollout history for rollback practice without
+  # keeping too many old pod templates. A ReplicaSet is the stored pod template for one Deployment revision.
   revisionHistoryLimit: 5
   selector:
     matchLabels:
@@ -37,7 +45,11 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
+      # CONFIGURATION EXPLANATION `maxUnavailable: 0` keeps all ready UI capacity serving while replacements start.
+      # This protects the browser entry point during updates at the cost of one temporary extra pod.
       maxUnavailable: 0
+      # CONFIGURATION EXPLANATION `maxSurge: 1` allows one extra UI pod during rollout so Kubernetes can prove the
+      # new version is ready before removing an old one.
       maxSurge: 1
   template:
     metadata:
@@ -47,18 +59,28 @@ spec:
         app.kubernetes.io/name: patient-intake-ui
         app.kubernetes.io/version: "1.0.0"
     spec:
+      # CONFIGURATION EXPLANATION The frontend ServiceAccount is the nginx pod's Kubernetes identity. It stays
+      # separate from the API and database identities so permissions can remain least-privilege per tier.
       serviceAccountName: patient-intake-ui
+      # CONFIGURATION EXPLANATION The UI does not need to call Kubernetes, so no API token is mounted into the pod.
+      # Removing unused credentials is a simple production security improvement.
       automountServiceAccountToken: false
       securityContext:
         # ENTERPRISE EMPHASIS: The nginx frontend does not need root privileges
         # or Kubernetes API access. UID 101 is the nginx user in the alpine image.
+        # CONFIGURATION EXPLANATION These values run nginx as its non-root image user. That limits damage if a
+        # web-serving vulnerability is exploited and aligns the manifest with the container image design.
         runAsNonRoot: true
         runAsUser: 101
         runAsGroup: 101
         seccompProfile:
+          # CONFIGURATION EXPLANATION RuntimeDefault applies the container runtime's normal system-call filter,
+          # providing baseline hardening without custom profiles.
           type: RuntimeDefault
       topologySpreadConstraints:
         - maxSkew: 1
+          # CONFIGURATION EXPLANATION This asks Kubernetes to spread UI pods across nodes when possible. If one
+          # worker node fails or is drained, the other node is more likely to still have a ready frontend pod.
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
@@ -69,10 +91,16 @@ spec:
           # CAN BE CHANGED: Frontend image and tag. Example: `patient-portal-ui:2.0.0`.
           # Must match UI_IMAGE in build-application-images_1.sh and referenced in
           # load-images-into-kind_2.sh. Use semver format: imagename:X.Y.Z
+          # CONFIGURATION EXPLANATION This image tag must match the locally built UI image. Production would use
+          # a scanned immutable registry tag so the exact frontend artifact can be promoted or rolled back.
           image: patient-intake-ui:1.0.0
           # CAN BE CHANGED: Use `Always` for remote registries, `IfNotPresent` for local kind.
+          # CONFIGURATION EXPLANATION IfNotPresent matches the local kind workflow where images are loaded into
+          # the cluster nodes. Remote production registries often use stronger pull and admission policies.
           imagePullPolicy: IfNotPresent
           securityContext:
+            # CONFIGURATION EXPLANATION The UI blocks privilege escalation, drops extra Linux capabilities, and
+            # makes the image filesystem read-only. The writable paths below are explicit temporary volumes.
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
@@ -80,8 +108,13 @@ spec:
                 - ALL
           ports:
             - name: http
+              # CONFIGURATION EXPLANATION Port 8080 must match nginx.conf `listen 8080`, the Dockerfile EXPOSE,
+              # and the frontend Service targetPort so browser traffic reaches nginx.
               containerPort: 8080
           resources:
+            # CONFIGURATION EXPLANATION The frontend is lightweight static-file serving, so its CPU and memory
+            # budget is smaller than the API and database. Production teams still set budgets for cost control
+            # and predictable scheduling.
             requests:
               cpu: "50m"
               memory: "64Mi"
@@ -89,6 +122,8 @@ spec:
               cpu: "250m"
               memory: "256Mi"
           readinessProbe:
+            # CONFIGURATION EXPLANATION Readiness checks `/` before the Service sends traffic to this pod. That
+            # proves nginx can serve the UI entry point before users are routed to it.
             httpGet:
               path: /
               port: http
@@ -97,6 +132,8 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 6
           livenessProbe:
+            # CONFIGURATION EXPLANATION Liveness checks whether nginx should be restarted. It uses the same simple
+            # path because the frontend has no database dependency; if nginx cannot serve `/`, the pod is broken.
             httpGet:
               path: /
               port: http
@@ -106,6 +143,8 @@ spec:
             failureThreshold: 3
           volumeMounts:
             - name: nginx-cache
+              # CONFIGURATION EXPLANATION The root filesystem is read-only, so nginx gets explicit temporary
+              # writable locations for cache, runtime files, and temp files. These are not durable storage.
               mountPath: /var/cache/nginx
             - name: nginx-run
               mountPath: /var/run
@@ -113,6 +152,8 @@ spec:
               mountPath: /tmp
       volumes:
         - name: nginx-cache
+          # CONFIGURATION EXPLANATION emptyDir volumes exist only while the pod exists. They are appropriate for
+          # nginx runtime scratch space and disappear safely during pod replacement.
           emptyDir: {}
         - name: nginx-run
           emptyDir: {}

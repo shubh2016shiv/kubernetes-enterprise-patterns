@@ -15,15 +15,25 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  # CONFIGURATION EXPLANATION A ServiceMonitor is a Prometheus Operator custom resource. It tells Prometheus how
+  # to discover a Service to scrape for metrics, but it only works after the Prometheus Operator installs its
+  # CustomResourceDefinition (CRD), which is the Kubernetes registration for a new object type.
   name: patient-record-api
   namespace: patient-record-system
 spec:
   selector:
     matchLabels:
+      # CONFIGURATION EXPLANATION These labels must match 09-backend-service.yaml. Prometheus discovers the Service
+      # by label, not by guessing the Deployment name.
       app: patient-record-api
       tier: backend
   endpoints:
     - port: http
+      # CONFIGURATION EXPLANATION The `http` port name must match the backend Service port name. Named ports make
+      # scrape configuration survive port-number changes when names stay stable.
+      # CONFIGURATION EXPLANATION Scraping every 30 seconds balances observability with cost. Shorter intervals
+      # show incidents faster but create more metrics traffic and storage.
       interval: 30s
+      # CONFIGURATION EXPLANATION `/metrics` is the conventional Prometheus endpoint path. The backend must expose
+      # metrics there before this optional ServiceMonitor can produce useful data.
       path: /metrics
-

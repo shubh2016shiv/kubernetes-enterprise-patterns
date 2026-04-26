@@ -12,30 +12,46 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  # CONFIGURATION EXPLANATION A PersistentVolumeClaim is a request for durable disk storage. This one stores local
+  # backup files so learners can inspect backup and restore mechanics, but production backups should leave the cluster.
   name: patient-record-database-backups
   namespace: patient-record-system
 spec:
   # ENTERPRISE EMPHASIS: This PVC is a local backup target so learners can see
   # the mechanics. In enterprise, backups must leave the failure domain of the
   # database node and the application namespace.
+  # CONFIGURATION EXPLANATION ReadWriteOnce means one node can mount the backup disk for writing at a time. That
+  # is enough for this single backup job pattern and keeps the local storage model simple.
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
+      # CONFIGURATION EXPLANATION 1Gi is a small local backup target for practicing mechanics. Production backup
+      # capacity is sized from database growth, retention policy, compression, and restore-time objectives.
       storage: 1Gi
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
+  # CONFIGURATION EXPLANATION A CronJob is a Kubernetes object that creates Jobs on a schedule. This one separates
+  # backup from normal database serving so data protection has its own logs, retries, and operational history.
   name: backup-patient-record-database
   namespace: patient-record-system
 spec:
+  # CONFIGURATION EXPLANATION `0 2 * * *` means run once per day at 02:00 in the controller's timezone. Enterprises
+  # choose schedules around traffic lows, backup windows, retention rules, and recovery requirements.
   schedule: "0 2 * * *"
+  # CONFIGURATION EXPLANATION Forbid prevents a second backup from starting if the previous run is still active.
+  # Overlapping database dumps can create load spikes and confusing restore artifacts.
   concurrencyPolicy: Forbid
+  # CONFIGURATION EXPLANATION Keeping three successful and three failed Job records gives enough recent history
+  # for troubleshooting without filling the namespace with old backup-run objects.
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # CONFIGURATION EXPLANATION The backup Job retries twice for transient failures, then stays failed so the
+      # operator investigates instead of silently pretending data protection is healthy.
       backoffLimit: 2
       template:
         metadata:
@@ -43,16 +59,28 @@ spec:
             app: backup-patient-record-database
             tier: database
         spec:
+          # CONFIGURATION EXPLANATION The backup runner ServiceAccount is the Kubernetes identity for scheduled
+          # backup pods. It is separate from the API identity so maintenance work can be audited independently.
           serviceAccountName: patient-database-backup-runner
+          # CONFIGURATION EXPLANATION OnFailure restarts the backup container inside the Job pod only when the dump
+          # command fails. That is appropriate for short operational tasks with transient dependency errors.
           restartPolicy: OnFailure
           securityContext:
             seccompProfile:
+              # CONFIGURATION EXPLANATION RuntimeDefault keeps backup pods under the same baseline system-call
+              # filtering as application pods, even though the pod is short-lived.
               type: RuntimeDefault
           containers:
             - name: backup
+              # CONFIGURATION EXPLANATION The backup job uses the MariaDB client tools from the same pinned image
+              # family as the database. Matching versions reduces dump compatibility surprises.
               image: mariadb:11.8.6
+              # CONFIGURATION EXPLANATION IfNotPresent avoids repeated pulls in kind. Production backup jobs should
+              # still use pinned, scanned images from a trusted registry.
               imagePullPolicy: IfNotPresent
               securityContext:
+                # CONFIGURATION EXPLANATION Backup pods only need to run the database dump client, so they block
+                # privilege escalation and drop Linux capabilities to reduce risk during maintenance jobs.
                 allowPrivilegeEscalation: false
                 capabilities:
                   drop:
@@ -61,6 +89,8 @@ spec:
                 - name: MARIADB_DATABASE
                   valueFrom:
                     secretKeyRef:
+                      # CONFIGURATION EXPLANATION The backup reads database name, user, and password from the same
+                      # Secret as the app. That keeps backup scope aligned with the database the API actually uses.
                       name: patient-record-database-credentials
                       key: mysql-database
                 - name: MARIADB_USER
@@ -74,6 +104,8 @@ spec:
                       name: patient-record-database-credentials
                       key: mysql-password
               command:
+                # CONFIGURATION EXPLANATION The command writes timestamped compressed SQL dumps under `/backups`.
+                # Timestamps make each backup auditable, and compression keeps local storage use lower.
                 - /bin/sh
                 - -c
                 - |
@@ -92,8 +124,12 @@ spec:
                   echo "Backup written to ${BACKUP_FILE}"
               volumeMounts:
                 - name: backup-storage
+                  # CONFIGURATION EXPLANATION `/backups` is the mounted backup destination inside the job pod. It
+                  # must match the PersistentVolumeClaim below so the dump survives after the pod exits.
                   mountPath: /backups
               resources:
+                # CONFIGURATION EXPLANATION Backup work is lightweight in the lab, so requests and limits are small.
+                # Production backups are sized carefully because dumps can compete with live database traffic.
                 requests:
                   cpu: "50m"
                   memory: "128Mi"
@@ -103,5 +139,6 @@ spec:
           volumes:
             - name: backup-storage
               persistentVolumeClaim:
+                # CONFIGURATION EXPLANATION This claim name connects the backup pod to the PVC defined at the top
+                # of the file. If it does not match, the backup Job cannot mount its destination storage.
                 claimName: patient-record-database-backups
-
